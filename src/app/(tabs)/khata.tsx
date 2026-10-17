@@ -4,10 +4,12 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { Avatar, Badge, Card, Chip, Empty, Icon, IconButton, Page, SearchField, Section, T, ui } from '../../components/ui';
 import { money, partyBalance, totals } from '../../lib/domain';
 import { useBusiness } from '../../state/business';
+import { useWhatsApp } from '../../state/whatsapp';
 import { colors as c } from '../../theme';
 
 export default function KhataScreen() {
   const { state } = useBusiness();
+  const { connection, snapshot, error } = useWhatsApp();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All customers');
   const summary = totals(state);
@@ -23,6 +25,12 @@ export default function KhataScreen() {
       <View style={ui.between}><T style={{ color: '#C7DEF3', fontSize: 11 }}>{state.parties.filter((party) => partyBalance(state, party.id) > 0).length} customers with a balance</T>
         <Badge label="Confirmed records" /></View>
     </Card>
+    <Pressable accessibilityRole="button" accessibilityLabel="Open WhatsApp orders and invoices" onPress={() => router.push('/whatsapp')}>
+      <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.sky, borderColor: '#D6EDF9' }}>
+        <Icon name="logo-whatsapp" color={c.navy} size={29} /><View style={{ flex: 1, gap: 5 }}><T weight="bold" style={{ fontSize: 14 }}>WhatsApp orders</T>
+          <T style={{ fontSize: 10, lineHeight: 17, color: c.muted }}>{error ? 'Bot sync needs attention' : snapshot?.status.state === 'connected' ? 'Linked · Orders become invoices and khata' : connection ? 'Server paired · Link WhatsApp or try a demo' : 'Connect your bot · Order → invoice → khata'}</T></View><Icon name="chevron-forward" size={17} />
+      </Card>
+    </Pressable>
     <SearchField value={query} onChangeText={setQuery} placeholder="Find a customer" />
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
       {['All customers', 'Has dues', 'Settled'].map((item) => <Chip key={item} label={item} active={filter === item} onPress={() => setFilter(item)} />)}

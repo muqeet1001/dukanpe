@@ -11,21 +11,22 @@ export default function SourcesScreen() {
   const [resetVisible, setResetVisible] = useState(false);
   return <Page title="Your sources" subtitle="Know where every record comes from." back>
     <Card style={{ backgroundColor: c.sky, borderColor: '#DDF0FB', gap: 11 }}>
-      <Badge label="DEMO WORKSPACE" /><T weight="extra" style={{ fontSize: 21, letterSpacing: -0.6 }}>One shop. One clear picture.</T>
-      <T style={{ fontSize: 12, color: '#6585A0', lineHeight: 21 }}>This prototype uses fictional records saved on this device. Your real messages, bank accounts and payment apps are not connected.</T>
+      <Badge label="MERCHANT WORKSPACE" /><T weight="extra" style={{ fontSize: 21, letterSpacing: -0.6 }}>One shop. One clear picture.</T>
+      <T style={{ fontSize: 12, color: '#6585A0', lineHeight: 21 }}>Your sample shop stays on this device. You can pair the Node WhatsApp bot to import order invoices. Bank accounts and payment apps are not connected.</T>
     </Card>
+    <Card style={{ gap: 13 }}><T weight="extra" style={{ fontSize: 16 }}>WhatsApp order bot</T><T style={ui.help}>Pair your server, check product prices and link WhatsApp with a QR. Order invoices appear in customer khata automatically.</T><Button title="Set up WhatsApp orders" icon="logo-whatsapp" onPress={() => router.push('/whatsapp')} /></Card>
     {([
-      { source: 'WhatsApp', title: 'WhatsApp Business', description: 'Orders, promises and supplier conversations.', filter: 'WhatsApp', future: 'Connect an authorised Business account in the backend.' },
+      { source: 'WhatsApp', title: 'WhatsApp records', description: 'Sample chats and imported bot orders.', filter: 'WhatsApp', future: 'Use WhatsApp orders above to link the bot. Older sample conversations remain labelled as samples.' },
       { source: 'PhonePe', title: 'Payment alerts', description: 'GPay and PhonePe alerts in one inbox.', filter: 'payments', future: 'Real Android capture needs a native notification listener, permission and a development build.' },
       { source: 'Bill', title: 'Bills & invoices', description: 'Your bill details, linked to the full story.', filter: 'Bill', future: 'Document capture and OCR can connect to these record screens.' },
     ] as { source: Source; title: string; description: string; filter: string; future: string }[]).map((source) => <Card key={source.title} style={{ gap: 14 }}>
       <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}><SourceIcon source={source.source} /><View style={{ flex: 1, gap: 6 }}><T weight="extra" style={{ fontSize: 14 }}>{source.title}</T><T style={{ color: c.muted, fontSize: 11 }}>{source.description}</T></View></View>
-      <View style={ui.between}><Badge label="Sample records" /><T style={{ color: c.muted, fontSize: 10 }}>Not connected</T></View>
-      <Button title="Explore sample records" secondary icon="arrow-forward-outline" onPress={() => router.push({ pathname: '/records', params: { source: source.filter } })} />
+      <View style={ui.between}><Badge label={source.source === 'WhatsApp' ? 'Chats & orders' : 'Sample records'} /><T style={{ color: c.muted, fontSize: 10 }}>{source.source === 'WhatsApp' ? 'See bot setup above' : 'Not connected'}</T></View>
+      <Button title="Explore records" secondary icon="arrow-forward-outline" onPress={() => router.push({ pathname: '/records', params: { source: source.filter } })} />
       <T style={ui.help}>{source.future}</T>
     </Card>)}
     <Card style={{ gap: 13 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Icon name="phone-portrait-outline" size={19} color={c.blue} /><T weight="extra" style={{ fontSize: 14 }}>Local demo storage</T></View>
-      <T style={{ color: c.muted, fontSize: 12, lineHeight: 20 }}>{state.records.length} records and {state.parties.length} customer accounts. Changes survive app refresh on this device. This demo store is not encrypted financial storage.</T>
+      <T style={{ color: c.muted, fontSize: 12, lineHeight: 20 }}>{state.records.length} records and {state.parties.length} customer accounts. Changes survive app refresh on this device. Bot invoices stay on the server and return on the next sync after a demo reset. This demo store is not encrypted financial storage.</T>
       <Button title="Restore fresh sample data" secondary icon="refresh-outline" onPress={() => setResetVisible(true)} />
     </Card>
     <Modal visible={resetVisible} transparent animationType="fade" onRequestClose={() => setResetVisible(false)}>

@@ -1,0 +1,8 @@
+[
+  { "id": "rice", "name": "Rice", "unit": "kg", "pricePaise": 6000, "aliases": ["rice", "chawal", "चावल"] },
+  { "id": "sugar", "name": "Sugar", "unit": "kg", "pricePaise": 4500, "aliases": ["sugar", "chini", "cheeni", "चीनी"] },
+  { "id": "atta", "name": "Atta", "unit": "kg", "pricePaise": 4000, "aliases": ["atta", "flour", "aata", "आटा"] },
+  { "id": "oil", "name": "Oil", "unit": "litre", "pricePaise": 15000, "aliases": ["oil", "tel", "तेल"] },
+  { "id": "milk", "name": "Milk", "unit": "litre", "pricePaise": 6000, "aliases": ["milk", "doodh", "dudh", "दूध"] },
+  { "id": "biscuits", "name": "Biscuits", "unit": "packet", "pricePaise": 1000, "aliases": ["biscuits", "biscuit", "बिस्कुट"] }
+]

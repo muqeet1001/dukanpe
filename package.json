@@ -13,6 +13,7 @@
     "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.13",
     "expo-router": "~57.0.28",
+    "expo-secure-store": "~57.0.4",
     "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
@@ -37,7 +38,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "test": "node --experimental-strip-types --test tests/domain.test.ts",
-    "export:web": "expo export --platform web"
+    "export:web": "expo export --platform web",
+    "bot": "npm --prefix server start",
+    "bot:install": "npm --prefix server ci",
+    "test:bot": "npm --prefix server test"
   },
   "private": true
 }

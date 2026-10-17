@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { answerQuestion, businessReducer, createDemoState, parseAmount, partyBalance, totals } from '../src/lib/domain.ts';
+import type { BusinessRecord, Party } from '../src/lib/domain.ts';
 
 test('sample dashboard separates sales, receipts, dues and unconfirmed alerts', () => {
   const state = createDemoState();
@@ -79,4 +80,31 @@ test('today’s totals exclude older confirmed sales', () => {
   assert.equal(summary.sales, 0);
   assert.equal(summary.receipts, 0);
   assert.equal(summary.dues, 1875000);
+});
+
+test('WhatsApp invoice, source message and credit sale create one debit across repeated syncs', () => {
+  const initial = createDemoState();
+  const party: Party = { id: 'wa-customer-test', name: 'Bot Customer', initials: 'BC', color: 'mint', openingBalancePaise: 0, note: 'WhatsApp', origin: 'whatsapp-bot' };
+  const base = { source: 'WhatsApp' as const, partyId: party.id, createdAt: new Date().toISOString(), origin: 'whatsapp-bot' as const, invoiceId: 'invoice-1', title: 'Order', subtitle: 'Unpaid', evidence: '2 kg rice, 1 kg sugar' };
+  const records: BusinessRecord[] = [
+    { ...base, id: 'wa-sale-invoice-1', kind: 'sale', status: 'confirmed', amountPaise: 16500 },
+    { ...base, id: 'wa-invoice-invoice-1', kind: 'invoice', status: 'saved', amountPaise: 16500 },
+    { ...base, id: 'wa-message-invoice-1', kind: 'message', status: 'saved' },
+  ];
+  const imported = businessReducer(initial, { type: 'import-whatsapp', parties: [party], records });
+  assert.equal(partyBalance(imported, party.id), 16500);
+  assert.equal(totals(imported).dues, totals(initial).dues + 16500);
+  assert.equal(totals(imported).receipts, totals(initial).receipts);
+  assert.strictEqual(businessReducer(imported, { type: 'import-whatsapp', parties: [party], records }), imported);
+  assert.equal(imported.records.filter((r) => r.partyId === party.id).length, 3);
+});
+
+test('bot import cannot inject receipts or overwrite an existing local record', () => {
+  const initial = createDemoState();
+  const invalid = { ...initial.records[0], origin: 'whatsapp-bot' as const, status: 'confirmed' as const, invoiceId: 'bad' };
+  assert.strictEqual(businessReducer(initial, { type: 'import-whatsapp', parties: [], records: [invalid] }), initial);
+  assert.equal(initial.records[0].status, 'review');
+  const wrongCustomer: BusinessRecord = { id: 'wa-sale-bad', kind: 'sale', status: 'confirmed', source: 'WhatsApp', origin: 'whatsapp-bot', invoiceId: 'bad', partyId: 'roy', amountPaise: 16500,
+    title: 'Wrong customer', subtitle: 'Unpaid', evidence: 'Must not merge by name', createdAt: new Date().toISOString() };
+  assert.strictEqual(businessReducer(initial, { type: 'import-whatsapp', parties: [], records: [wrongCustomer] }), initial);
 });

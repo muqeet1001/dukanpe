@@ -20,10 +20,11 @@ export default function RecordScreen() {
       <SourceIcon source={record.source} size={58} />
       <T weight="extra" style={{ fontSize: 18, textAlign: 'center' }}>{record.title}</T>
       {record.amountPaise !== undefined && <T weight="extra" style={{ fontSize: 37, letterSpacing: -1 }}>{record.kind === 'receipt' ? '+' : ''}{money(record.amountPaise)}</T>}
-      <Badge label={confirming ? 'Awaiting your confirmation' : record.status === 'confirmed' ? 'Merchant confirmed' : record.status === 'saved' ? 'Saved record' : 'Open request'}
+      <Badge label={confirming ? 'Awaiting your confirmation' : record.origin === 'whatsapp-bot' ? 'WhatsApp order · Unpaid invoice' : record.status === 'confirmed' ? 'Merchant confirmed' : record.status === 'saved' ? 'Saved record' : 'Open request'}
         tone={confirming ? 'amber' : record.status === 'confirmed' ? 'green' : 'blue'} />
-      <T style={{ color: c.muted, fontSize: 11 }}>{new Date(record.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · Sample data</T>
+      <T style={{ color: c.muted, fontSize: 11 }}>{new Date(record.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · {record.origin === 'whatsapp-bot' && !record.isDemo ? 'WhatsApp order' : 'Sample data'}</T>
     </Card>
+    {record.invoiceId && <Button title="Open order invoice" icon="document-text-outline" onPress={() => router.push({ pathname: '/invoice/[id]', params: { id: record.invoiceId! } })} />}
     <Card style={{ gap: 12 }}>
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}><Icon name="document-text-outline" size={17} color={c.blue} /><T weight="extra" style={{ fontSize: 13 }}>Source evidence</T></View>
       <View style={{ padding: 15, backgroundColor: c.ice, borderRadius: 13 }}><T style={{ fontSize: 13, lineHeight: 23 }}>{record.evidence}</T></View>

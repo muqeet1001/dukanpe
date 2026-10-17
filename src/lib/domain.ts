@@ -8,6 +8,8 @@ export type Party = {
   color: string;
   openingBalancePaise: number;
   note: string;
+  phone?: string;
+  origin?: 'whatsapp-bot';
 };
 export type BusinessRecord = {
   id: string;
@@ -22,6 +24,9 @@ export type BusinessRecord = {
   evidence: string;
   note?: string;
   linkedSaleId?: string;
+  origin?: 'whatsapp-bot';
+  invoiceId?: string;
+  isDemo?: boolean;
 };
 export type FollowUp = {
   id: string;
@@ -55,6 +60,7 @@ export type Action =
   | { type: 'confirm-payment'; id: string; partyId?: string | null }
   | { type: 'add-sale'; input: SaleInput }
   | { type: 'follow-up'; id: string; done: boolean }
+  | { type: 'import-whatsapp'; parties: Party[]; records: BusinessRecord[] }
   | { type: 'reset'; state: BusinessState };
 
 export function money(paise: number): string {
@@ -104,6 +110,25 @@ export function totals(state: BusinessState, today = new Date()) {
 
 export function businessReducer(state: BusinessState, action: Action): BusinessState {
   switch (action.type) {
+    case 'import-whatsapp': {
+      const validParties = action.parties.filter((party) => party.id.startsWith('wa-customer-') && party.origin === 'whatsapp-bot'
+        && typeof party.name === 'string' && party.openingBalancePaise === 0);
+      const partyIds = new Set([...state.parties.filter((party) => party.origin === 'whatsapp-bot'), ...validParties].map((party) => party.id));
+      const parties = new Map(state.parties.map((party) => [party.id, party]));
+      const records = new Map(state.records.map((record) => [record.id, record]));
+      for (const party of validParties) if (!parties.has(party.id)) parties.set(party.id, party);
+      const added: BusinessRecord[] = [];
+      for (const record of action.records) {
+        if (records.has(record.id) || record.origin !== 'whatsapp-bot' || record.source !== 'WhatsApp' || !record.invoiceId
+          || !record.partyId || !partyIds.has(record.partyId) || !['sale', 'invoice', 'message'].includes(record.kind)
+          || !record.id.startsWith('wa-' + record.kind + '-') || !Number.isFinite(Date.parse(record.createdAt))
+          || (record.kind !== 'message' && (!Number.isSafeInteger(record.amountPaise) || (record.amountPaise ?? 0) < 1))
+          || record.status !== (record.kind === 'sale' ? 'confirmed' : 'saved')) continue;
+        records.set(record.id, record); added.push(record);
+      }
+      if (parties.size === state.parties.length && !added.length) return state;
+      return { ...state, parties: [...parties.values()], records: [...added, ...state.records] };
+    }
     case 'hydrate':
     case 'reset':
       return action.state;

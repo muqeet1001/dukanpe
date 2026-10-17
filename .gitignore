@@ -43,3 +43,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# WhatsApp sessions, pairing credentials and financial database
+server/node_modules/
+server/data/
+server/.wwebjs_auth/
+server/.wwebjs_cache/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

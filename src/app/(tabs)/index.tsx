@@ -22,7 +22,7 @@ export default function HomeScreen() {
     <View style={s.businessSection}>
       <View style={ui.between}>
         <View style={{ gap: 5 }}><T weight="bold" style={s.heading}>Your business today</T><T style={s.summaryDate}>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}</T></View>
-        <View style={s.sampleBadge}><T weight="semi" style={s.sampleLabel}>Sample data</T></View>
+        <View style={s.sampleBadge}><T weight="semi" style={s.sampleLabel}>{state.records.some((record) => record.origin === 'whatsapp-bot' && !record.isDemo) ? 'Sample + WhatsApp' : 'Sample data'}</T></View>
       </View>
 
       <Card style={s.salesCard}>
