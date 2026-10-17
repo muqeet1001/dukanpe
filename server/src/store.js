@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { chatCommand, invoiceText, menuText, orderHelpText, parseOrder, validateCatalogue, validateIncoming, welcomeText } from './orders.js';
+import { identityKeys } from './customer-data.js';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex').slice(0, 24);
 export class Store {
@@ -30,6 +31,29 @@ export class Store {
     if (!this.db.prepare('UPDATE products SET price_paise=? WHERE id=?').run(pricePaise, id).changes) throw new Error('Product not found.');
   }
   balance(customerId) { return this.db.prepare('SELECT COALESCE(SUM(amount_paise),0) AS balance FROM ledger WHERE customer_id=?').get(customerId).balance; }
+  customerScope(input) {
+    const mode = input.isDemo ? 'demo' : 'live'; const keys = identityKeys(input);
+    return this.db.prepare(`SELECT DISTINCT c.* FROM customers c WHERE c.mode=? AND
+      (c.identity IN (${keys.map(() => '?').join(',')}) OR c.id IN
+        (SELECT i.customer_id FROM invoices i JOIN outbox o ON o.invoice_id=i.id WHERE i.mode=? AND o.destination=?))`)
+      .all(mode, ...keys, mode, input.chatId || input.customerKey);
+  }
+  customerAccount(input) {
+    const customers = this.customerScope(input); const ids = customers.map((customer) => customer.id);
+    if (!ids.length) return { found: false, balancePaise: 0, orderCount: 0, orders: [] };
+    const where = ids.map(() => '?').join(',');
+    const rows = this.db.prepare(`SELECT id FROM invoices WHERE customer_id IN (${where}) ORDER BY created_at DESC,rowid DESC LIMIT 5`).all(...ids);
+    return { found: true, balancePaise: ids.reduce((sum, id) => sum + this.balance(id), 0),
+      orderCount: this.db.prepare(`SELECT COUNT(*) AS count FROM invoices WHERE customer_id IN (${where})`).get(...ids).count,
+      orders: rows.map((row) => this.invoice(row.id)) };
+  }
+  customerInvoice(input, reference = 'latest') {
+    const ids = this.customerScope(input).map((customer) => customer.id); if (!ids.length) return null;
+    const filter = reference === 'latest' ? '' : ' AND (id=? OR number=?)';
+    const row = this.db.prepare(`SELECT id FROM invoices WHERE customer_id IN (${ids.map(() => '?').join(',')})${filter} ORDER BY created_at DESC,rowid DESC LIMIT 1`)
+      .get(...ids, ...(reference === 'latest' ? [] : [reference, reference.toUpperCase()]));
+    return row ? this.invoice(row.id) : null;
+  }
   invoice(id) {
     const row = this.db.prepare(`SELECT i.*, c.name,c.phone,c.identity,o.status AS delivery,o.error AS delivery_error,o.destination
       FROM invoices i JOIN customers c ON c.id=i.customer_id JOIN outbox o ON o.invoice_id=i.id WHERE i.id=?`).get(id);

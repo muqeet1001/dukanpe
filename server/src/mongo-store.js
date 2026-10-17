@@ -2,6 +2,7 @@ import { MongoClient } from 'mongodb';
 import { createHash, randomUUID } from 'node:crypto';
 import { chatCommand, invoiceText, menuText, orderHelpText, parseOrder, validateCatalogue, validateIncoming, welcomeText } from './orders.js';
 import { snapshotData } from './snapshot.js';
+import { identityKeys } from './customer-data.js';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex').slice(0, 24);
 const publicDocument = ({ _id, ...document }) => ({ id: _id, ...document });
@@ -27,8 +28,10 @@ export class MongoStore {
       c.customers.createIndex({ identity: 1 }, { unique: true }),
       c.invoices.createIndex({ number: 1 }, { unique: true }),
       c.invoices.createIndex({ sourceMessageId: 1 }, { unique: true }),
+      c.invoices.createIndex({ customerId: 1, createdAt: -1 }),
       c.ledger.createIndex({ invoiceId: 1 }, { unique: true }),
       c.outbox.createIndex({ status: 1 }),
+      c.outbox.createIndex({ destination: 1 }),
       c.conversations.createIndex({ expiresAtDate: 1 }, { expireAfterSeconds: 0 }),
     ]);
     await c.products.bulkWrite(validateCatalogue(catalogue).map(({ id, ...product }, position) => ({
@@ -43,6 +46,29 @@ export class MongoStore {
     if (!(await this.collections.products.updateOne({ _id: id }, { $set: { pricePaise } })).matchedCount) throw new Error('Product not found.');
   }
   async balance(customerId) { return (await this.collections.customers.findOne({ _id: customerId }))?.balancePaise ?? 0; }
+  async customerScope(input) {
+    const c = this.collections; const mode = input.isDemo ? 'demo' : 'live';
+    const destination = input.chatId || input.customerKey;
+    const jobs = await c.outbox.find({ destination }, { projection: { _id: 1 } }).toArray();
+    const previous = jobs.length ? await c.invoices.find({ _id: { $in: jobs.map((job) => job._id) }, isDemo: Boolean(input.isDemo) }, { projection: { customerId: 1 } }).toArray() : [];
+    return c.customers.find({ mode, $or: [{ identity: { $in: identityKeys(input) } }, { _id: { $in: previous.map((row) => row.customerId) } }] }).toArray();
+  }
+  async customerAccount(input) {
+    const customers = await this.customerScope(input); const ids = customers.map((customer) => customer._id);
+    if (!ids.length) return { found: false, balancePaise: 0, orderCount: 0, orders: [] };
+    const filter = { customerId: { $in: ids } };
+    const [rows, orderCount] = await Promise.all([
+      this.collections.invoices.find(filter).sort({ createdAt: -1, _id: -1 }).limit(5).toArray(), this.collections.invoices.countDocuments(filter),
+    ]);
+    return { found: true, balancePaise: customers.reduce((sum, customer) => sum + customer.balancePaise, 0), orderCount,
+      orders: await Promise.all(rows.map((row) => this.invoice(row._id))) };
+  }
+  async customerInvoice(input, reference = 'latest') {
+    const ids = (await this.customerScope(input)).map((customer) => customer._id); if (!ids.length) return null;
+    const filter = { customerId: { $in: ids }, ...(reference === 'latest' ? {} : { $or: [{ _id: reference }, { number: reference.toUpperCase() }] }) };
+    const row = await this.collections.invoices.find(filter).sort({ createdAt: -1, _id: -1 }).limit(1).next();
+    return row ? this.invoice(row._id) : null;
+  }
   async invoice(id) {
     const row = await this.collections.invoices.findOne({ _id: id });
     if (!row) return null;
@@ -67,7 +93,7 @@ export class MongoStore {
   async conversation(key) { return this.collections.conversations.findOne({ _id: key }); }
   async saveConversation(key, data) {
     const { _id, expiresAtDate, ...value } = data;
-    await this.collections.conversations.updateOne({ _id: key }, { $set: { ...value, expiresAtDate: new Date(value.expiresAt) } }, { upsert: true });
+    await this.collections.conversations.replaceOne({ _id: key }, { _id: key, ...value, expiresAtDate: new Date(value.expiresAt) }, { upsert: true });
   }
   async clearConversation(key) { await this.collections.conversations.deleteOne({ _id: key }); }
   async process({ messageId, customerKey, chatId = customerKey, name, phone = '', body, orderBody, isDemo = false }) {

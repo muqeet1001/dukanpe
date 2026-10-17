@@ -19,7 +19,7 @@ The server uses port 4000 and prints its LAN address. Keep the Expo phone and co
 3. Paste the private code from **server/data/pairing-code.txt** and choose **Connect bot server**. Do not commit or share that code.
 4. Review `catalogue.json` before first launch: its initial products and prices are samples. Saved prices can be updated through the protected catalogue API.
 5. Choose **Connect WhatsApp**. On the business/test phone open WhatsApp → Linked devices → Link a device, then scan the QR shown in Dukanpe.
-6. From a **different WhatsApp number**, send `HI` to the linked business number. The bot welcomes the customer by shop name. Reply `1` or `MENU` for current prices, `2` or `ORDER` for ordering help, then send `2 kg rice, 1 kg sugar`.
+6. From a **different WhatsApp number**, send `HI` to the linked business number. Reply `1` or `MENU` for current prices, `2` or `ORDER` for ordering help, `3` for your balance, `4` for your orders or `5` for your latest invoice. To order directly, send `2 kg rice, 1 kg sugar`.
 7. The customer receives an unpaid order invoice as a PDF with an itemised caption. Dukanpe imports the customer, invoice, original order and one credit sale into khata within about 2.5 seconds while open.
 
 The first sample order is INR 165: 2 kg rice at INR 60/kg plus 1 kg sugar at INR 45/kg. It increases customer dues, with no receipt or paid balance fabricated.
@@ -30,7 +30,25 @@ Set `GROQ_API_KEY` privately in `server/.env`. The default model is `openai/gpt-
 
 HI, MENU, numbered choices and exact catalogue-format orders use deterministic handlers. Other messages go to Groq for shop-related help and natural-language order extraction. For example, `do kilo chawal aur ek kilo cheeni chahiye` becomes a priced preview. The customer must reply **CONFIRM** before that AI-interpreted order creates an invoice or debt. **CANCEL** discards the preview. Previews expire after 15 minutes; changed prices require a new confirmation. Duplicate confirmations and restarts cannot add a second debit.
 
-Only the current customer message and catalogue IDs/names/aliases/units go to Groq. Customer phone numbers, stored account histories, database credentials and API keys are not included in the prompt. Customer text itself may contain personal information. Never rely on model-generated prices: the server validates known products and quantities, then computes integer-paise totals from saved catalogue prices. Unsupported products/units stay unbilled. When Groq is unavailable or rate limited, catalogue commands and explicit-format orders continue working.
+The current customer message, catalogue IDs/names/aliases/units and the current chat's pending product quantities go to Groq. Customer phone numbers, stored account histories, database credentials and API keys are not included in the prompt. Customer text itself may contain personal information. Never rely on model-generated prices: the server validates known products and quantities, then computes integer-paise totals from saved catalogue prices. Unsupported products/units stay unbilled. When Groq is unavailable or rate limited, catalogue commands, account shortcuts and explicit-format orders continue working.
+
+## Replies from database records
+
+The agent uses Groq to select an operation, then the server queries the configured database and formats factual amounts itself. The model cannot choose a customer identity or execute database queries. Identity comes from the WhatsApp sender's resolved phone/chat metadata. Display names and phone numbers typed into a message never select another account. A known original chat can still find its existing records if phone resolution temporarily fails. Live and simulated accounts stay separate.
+
+| Customer message | What the agent does |
+|---|---|
+| `What is the rice price?` | Reads the current saved catalogue price; does not claim stock availability |
+| `BALANCE`, `What do I owe?`, `3` | Reads only the sender's recorded WhatsApp-order balance |
+| `MY ORDERS`, `4` | Lists the sender's five latest recorded orders and invoice numbers |
+| `INVOICE`, `5`, `INVOICE DK-...` | Retrieves the sender's own invoice and sends a PDF copy without another debit |
+| `ORDER STATUS` | Shows recorded invoice/payment data; explains that fulfilment is not tracked |
+| `REPEAT LAST ORDER` | Loads the sender's previous items and asks confirmation at current prices |
+| `I want rice`, then `2 kg` | Remembers the requested product and produces a priced preview |
+| `Make the rice 3 kg` | Updates a pending preview; does not edit an issued invoice |
+| `CART` / `CANCEL` | Shows or discards the current chat's pending order |
+
+Account reads and PDF copies are restricted again by customer ownership at the data/transport boundaries. An explicit invoice number from another account returns the same not-found reply as a nonexistent invoice. PDF copies do not change the original delivery status or create another sale. Chat claims such as `I paid 500` never record receipts or clear balances. These balances cover the bot database's orders; manual entries still held only on the app device are not silently included.
 
 ## Customer flow
 
@@ -50,7 +68,7 @@ If a reply does not arrive, open **Connection settings** and check **Last incomi
 
 Explicit-format orders use catalogue matching and do not need an AI call. Other messages use Groq when configured. Orders accept up to ten lines with known items and clear quantities. Unsupported products, wrong units, mixed payment instructions, vague requests and unsupported units produce clarification; the whole order remains unbilled. Zero/negative quantities and fractional packets are rejected. Gram/ml quantities convert to kg/litre, and money is rounded once per combined product line to integer paise.
 
-Add more products/aliases in `catalogue.json` and restart. Existing product prices are stored in SQLite and edited through the protected catalogue API; reloading the seed file does not overwrite saved prices. Historical invoices freeze their item prices. PDFs use built-in Latin fonts and INR currency text; a non-Latin customer name falls back to their phone number on the PDF. The app retains Unicode names and text.
+Add more products/aliases in `catalogue.json` and restart. Existing product prices are stored in the configured database and edited through the protected catalogue API; reloading the seed file does not overwrite saved prices. Historical invoices freeze their item prices. PDFs use built-in Latin fonts and INR currency text; a non-Latin customer name falls back to their phone number on the PDF. The app retains Unicode names and text.
 
 ## Data and behaviour
 
@@ -106,6 +124,8 @@ node --env-file=.env --test test/mongo.test.js
 ```
 
 Tests cover parsing, greeting/menu flow, complete-order rejection, invoice/debit deduplication, account separation, frozen pricing, persistence/restart, PDF output, mocked WhatsApp delivery, protected API/PDF links, Groq response validation, AI confirmation, expiry, cancellation and price-change review. The MongoDB integration test uses fresh uniquely named disposable collections, verifies transactions/concurrent deduplication, then removes only those test collections. Tests send no real WhatsApp messages. Physical delivery must be tested from a separate WhatsApp number after linking.
+
+Customer-agent tests additionally cover live database price changes, sender-scoped balance/history/invoice reads, equal-name account separation, missing phone resolution, cross-account invoice refusal, draft follow-ups/edits, repeat orders, PDF copies and current WhatsApp message-key variants.
 
 See [Groq models](https://console.groq.com/docs/models), [free-plan limits](https://console.groq.com/docs/rate-limits) and the [MongoDB Node driver](https://www.mongodb.com/docs/drivers/node/current/).
 

@@ -1,8 +1,18 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import QRCode from 'qrcode';
 import { chatCommand, invoiceText } from './orders.js';
 import { invoicePdf } from './invoice-pdf.js';
+
+export function whatsappMessageId(message) {
+  const serialized = [message?.id?._serialized, message?.id?.$1, typeof message?.id === 'string' ? message.id : null]
+    .find((value) => typeof value === 'string' && value.length > 0);
+  if (serialized) return serialized.length <= 240 ? serialized : 'wa-' + createHash('sha256').update(serialized).digest('hex');
+  if (typeof message?.id?.id === 'string' && message.id.id) return 'wa-' + createHash('sha256')
+    .update(`${message.from || ''}\0${message.to || ''}\0${message.id.id}`).digest('hex');
+  return undefined;
+}
 
 export class WhatsAppBot {
   constructor(store, dataDirectory, options = {}) {
@@ -42,14 +52,15 @@ export class WhatsAppBot {
       name = String(contact?.pushname || contact?.name || message._data?.notifyName || phone || name).trim().slice(0, 100) || 'WhatsApp customer';
     }
     if (this.client !== client) return;
-    const input = { messageId: message.id._serialized, customerKey: phone || message.from,
+    const input = { messageId: whatsappMessageId(message), customerKey: phone || message.from,
       chatId: message.from, name, phone, body: message.body };
     const result = this.options.assistant ? await this.options.assistant.process(input) : await this.store.process(input);
-    if (result.invoice) await this.deliver(result.invoice.id);
+    if (result.copyInvoiceId) { if (!result.duplicate) await this.deliverCopy(input, result.copyInvoiceId); }
+    else if (result.invoice) await this.deliver(result.invoice.id);
     else if (!result.duplicate) {
       try {
         const sent = await client.sendMessage(message.from, result.reply, { sendSeen: false });
-        if (!sent?.id?._serialized) throw new Error('WhatsApp returned no outgoing message confirmation.');
+        if (!whatsappMessageId(sent)) throw new Error('WhatsApp returned no outgoing message confirmation.');
         this.status.lastReplyAt = new Date().toISOString(); this.status.error = null;
       } catch (cause) { const error = new Error('WhatsApp reply failed: ' + String(cause?.message || cause)); error.botStage = 'reply'; throw error; }
     }
@@ -91,12 +102,27 @@ export class WhatsAppBot {
     try {
       const media = new this.library.MessageMedia('application/pdf', pdf.toString('base64'), invoice.number + '.pdf');
       const sent = await this.client.sendMessage(invoice.destination, media, { caption: invoiceText(invoice, this.store.shopName), sendMediaAsDocument: true, sendSeen: false });
-      await this.store.delivery(id, 'sent', null, sent.id._serialized);
+      const sentId = whatsappMessageId(sent);
+      if (!sentId) throw new Error('WhatsApp returned no outgoing invoice confirmation.');
+      await this.store.delivery(id, 'sent', null, sentId);
       this.status.lastReplyAt = new Date().toISOString(); this.status.error = null;
     } catch (error) {
       await this.store.delivery(id, 'uncertain', 'Delivery could not be confirmed. Check the customer chat before resending. Khata was added only once.');
       this.reportError('invoice', error);
     }
+  }
+  async deliverCopy(input, id) {
+    // Repeat the ownership check at the transport boundary, before sending a PDF.
+    const invoice = await this.store.customerInvoice(input, id);
+    if (!invoice || invoice.isDemo || input.isDemo) throw new Error('Invoice copy is not available for this account.');
+    if (this.status.state !== 'connected' || !this.client) throw new Error('Connect WhatsApp before sending an invoice copy.');
+    try {
+      const pdf = await invoicePdf(invoice, this.store.shopName);
+      const media = new this.library.MessageMedia('application/pdf', pdf.toString('base64'), invoice.number + '.pdf');
+      const sent = await this.client.sendMessage(input.chatId, media, { caption: invoiceText(invoice, this.store.shopName), sendMediaAsDocument: true, sendSeen: false });
+      if (!whatsappMessageId(sent)) throw new Error('WhatsApp returned no invoice-copy confirmation.');
+      this.status.lastReplyAt = new Date().toISOString(); this.status.error = null;
+    } catch (cause) { const error = new Error('Invoice copy failed: ' + String(cause?.message || cause)); error.botStage = 'reply'; throw error; }
   }
   async stop({ preserveEnabled = false } = {}) {
     if (!preserveEnabled) this.rememberConnection(false);

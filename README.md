@@ -26,6 +26,7 @@ Native iOS builds require macOS/Xcode or an EAS build. No account, API key or pa
 ## What works
 
 - A Node + whatsapp-web.js bot with QR linking, Groq AI conversation, MongoDB persistence, PDF invoices and automatic khata sync. See [bot setup](server/README.md).
+- WhatsApp answers from the saved catalogue and the sender's own balances, orders and invoices, with pending-order edits, repeat orders and invoice PDF copies.
 - Home with three separate summary boxes above search: white for recorded sales, light blue for confirmed receipts and navy for customer dues.
 - Home search carries the typed query into matching records; quick actions open sales, udhaar and payment history.
 - Recent activity on Home shows the five newest records, with a link to the complete searchable history.

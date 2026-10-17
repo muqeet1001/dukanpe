@@ -1,9 +1,13 @@
 export const money = (paise) => 'INR ' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export function validateIncoming({ messageId, customerKey, chatId = customerKey, name, phone = '', body, orderBody }) {
-  if (typeof messageId !== 'string' || !messageId || messageId.length > 240 || typeof customerKey !== 'string' || !customerKey || customerKey.length > 160
-    || typeof chatId !== 'string' || !chatId || chatId.length > 160 || typeof body !== 'string' || body.length > 2000
-    || typeof name !== 'string' || name.length > 100 || typeof phone !== 'string' || phone.length > 30
-    || (orderBody !== undefined && (typeof orderBody !== 'string' || orderBody.length > 2000))) throw new Error('Invalid order message.');
+  const fields = { messageId: typeof messageId === 'string' && messageId.length > 0 && messageId.length <= 240,
+    customerKey: typeof customerKey === 'string' && customerKey.length > 0 && customerKey.length <= 160,
+    chatId: typeof chatId === 'string' && chatId.length > 0 && chatId.length <= 160,
+    body: typeof body === 'string' && body.length <= 2000, name: typeof name === 'string' && name.length <= 100,
+    phone: typeof phone === 'string' && phone.length <= 30,
+    orderBody: orderBody === undefined || (typeof orderBody === 'string' && orderBody.length <= 2000) };
+  const invalid = Object.entries(fields).filter(([, valid]) => !valid).map(([field]) => field);
+  if (invalid.length) throw new Error(`Invalid order message (${invalid.join(', ')}).`);
 }
 const normalise = (text) => text.toLowerCase().normalize('NFKC').replace(/[०-९]/g, (digit) => String('०१२३४५६७८९'.indexOf(digit))).replace(/\s+/g, ' ').trim();
 const units = {
@@ -76,7 +80,7 @@ export function chatCommand(body) {
 }
 
 export function welcomeText(shopName) {
-  return `Namaste! 👋 Welcome to *${shopName}*.\nI'm your Dukanpe shopping assistant.\n\nHow can I help you today?\n*1* · View products & prices\n*2* · How to place an order\n\nYou can also send your order directly:\n2 kg rice, 1 kg sugar\n\nI'll send your invoice here and add the unpaid amount to your shop khata.\n\nReply MENU any time to see prices.`;
+  return `Namaste! 👋 Welcome to *${shopName}*.\nI'm your Dukanpe shopping assistant.\n\nHow can I help you today?\n*1* · View products & prices\n*2* · How to place an order\n*3* · My WhatsApp-order balance\n*4* · My orders\n*5* · My latest invoice\n\nYou can ask naturally, like "What is the rice price?" or "What do I owe?"\n\nSend an order directly:\n2 kg rice, 1 kg sugar\n\nI'll send your invoice here and add the unpaid amount to your shop khata. Reply MENU any time to see prices.`;
 }
 
 export function orderHelpText() {
