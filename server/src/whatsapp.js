@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { checkoutText } from './payments.js';
 import { chatCommand, invoiceText } from './orders.js';
@@ -19,9 +19,26 @@ export class WhatsAppBot {
   constructor(store, dataDirectory, options = {}) {
     this.store = store; this.dataDirectory = dataDirectory; this.options = options;
     this.client = null; this.status = { state: 'idle', qr: null, error: null }; this.queue = Promise.resolve();
+    this.merchantAccount = options.merchantAccount || null;
+    if (!this.merchantAccount) {
+      try { this.merchantAccount = JSON.parse(readFileSync(join(dataDirectory, 'merchant-account.json'), 'utf8')); }
+      catch (error) { if (error.code !== 'ENOENT') throw new Error('Merchant account settings could not be loaded.'); }
+    }
+  }
+  registerMerchant(info) {
+    const id = String(info?.wid?.user || (info?.wid?._serialized || info?.wid?.$1 || '').split('@')[0]).split(':')[0];
+    if (!/^\d{7,15}$/.test(id) || (this.merchantAccount && this.merchantAccount.id !== id)) return false;
+    if (!this.merchantAccount) {
+      this.merchantAccount = { id, name: String(info.pushname || this.store.shopName).slice(0, 100) };
+      if (!this.options.verificationOnly) writeFileSync(join(this.dataDirectory, 'merchant-account.json'), JSON.stringify(this.merchantAccount), { mode: 0o600 });
+    }
+    return true;
+  }
+  createVerifier() {
+    return new WhatsAppBot(this.store, this.dataDirectory, { verificationOnly: true, merchantAccount: this.merchantAccount });
   }
   get shouldResume() { try { return JSON.parse(readFileSync(join(this.dataDirectory, 'whatsapp-enabled.json'), 'utf8')).enabled === true; } catch { return false; } }
-  rememberConnection(enabled) { writeFileSync(join(this.dataDirectory, 'whatsapp-enabled.json'), JSON.stringify({ enabled })); }
+  rememberConnection(enabled) { if (!this.options.verificationOnly) writeFileSync(join(this.dataDirectory, 'whatsapp-enabled.json'), JSON.stringify({ enabled })); }
   reportError(stage, error) {
     this.status.error = stage === 'reply'
       ? 'A message arrived, but the reply could not be confirmed. Send a fresh HI from another phone to try again.'
@@ -87,14 +104,20 @@ export class WhatsAppBot {
     }
   }
   async start() {
+    if (this.startTask) return this.startTask;
+    this.startTask = this.startClient();
+    try { await this.startTask; } finally { this.startTask = null; }
+  }
+  async startClient() {
     if (this.client) return;
+    this.linkEpoch = randomUUID();
     this.rememberConnection(true);
     this.status = { state: 'starting', qr: null, error: null };
     const { default: library } = await import('whatsapp-web.js');
     this.library = library;
     const candidates = [process.env.CHROME_EXECUTABLE_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'];
     const executablePath = candidates.find((path) => path && existsSync(path));
-    const client = new library.Client({ authStrategy: new library.LocalAuth({ clientId: 'dukanpe', dataPath: join(this.dataDirectory, 'whatsapp-session') }),
+    const client = new library.Client({ authStrategy: this.options.verificationOnly ? new library.NoAuth() : new library.LocalAuth({ clientId: 'dukanpe', dataPath: join(this.dataDirectory, 'whatsapp-session') }),
       webVersionCache: { type: 'local', path: join(this.dataDirectory, 'web-cache') }, puppeteer: { headless: true, ...(executablePath ? { executablePath } : {}) } });
     this.client = client;
     client.on('qr', async (value) => {
@@ -104,13 +127,22 @@ export class WhatsAppBot {
     client.on('authenticated', () => { if (this.client === client) this.status = { state: 'authenticating', qr: null, error: null }; });
     client.on('ready', () => {
       if (this.client !== client) return;
+      let accepted = false;
+      try { accepted = this.registerMerchant(client.info); } catch { /* Keep all messages disabled when merchant registration fails. */ }
+      if (!accepted) {
+        this.status = { state: 'error', qr: null, error: 'Use the merchant WhatsApp number already linked to this shop.' };
+        return;
+      }
       this.connectedAt = Date.now(); this.status = { state: 'connected', qr: null, error: null };
-      this.enqueue(async () => { for (const id of await this.store.pending()) await this.deliver(id); });
+      if (!this.options.verificationOnly) this.enqueue(async () => { for (const id of await this.store.pending()) await this.deliver(id); });
     });
     client.on('auth_failure', () => { if (this.client === client) this.status = { state: 'error', qr: null, error: 'WhatsApp authentication failed. Stop the connection and link again.' }; });
     client.on('disconnected', () => { if (this.client === client) this.status = { state: 'disconnected', qr: null, error: 'WhatsApp disconnected. Stop and restart to reconnect.' }; });
-    client.on('message', (message) => { this.enqueue(() => this.handleMessage(message, client)); });
-    client.initialize().catch(() => { if (this.client === client) this.status = { state: 'error', qr: null, error: 'WhatsApp could not start. Check Chrome installation and the server setup guide.' }; });
+    if (!this.options.verificationOnly) client.on('message', (message) => { this.enqueue(() => this.handleMessage(message, client)); });
+    client.initialize().catch((error) => { if (this.client === client) {
+      this.reportError('startup', error);
+      this.status = { state: 'error', qr: null, error: 'WhatsApp could not open. Tap Show WhatsApp QR to retry.' };
+    } });
   }
   async deliver(id, retry = false) {
     const invoice = await this.store.invoice(id);
@@ -146,9 +178,13 @@ export class WhatsAppBot {
     } catch (cause) { const error = new Error('Invoice copy failed: ' + String(cause?.message || cause)); error.botStage = 'reply'; throw error; }
   }
   async stop({ preserveEnabled = false } = {}) {
+    if (this.startTask) await this.startTask.catch(() => undefined);
     if (!preserveEnabled) this.rememberConnection(false);
     const client = this.client; this.client = null; this.connectedAt = null;
-    if (client) await client.destroy().catch(() => undefined);
+    if (client) {
+      if (this.options.verificationOnly && client.info) await client.logout().catch(() => client.destroy().catch(() => undefined));
+      else await client.destroy().catch(() => undefined);
+    }
     this.status = { state: 'idle', qr: null, error: null };
   }
 }

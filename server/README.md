@@ -15,22 +15,24 @@ npm run bot
 The server uses port 4000 and prints its LAN address. Keep the Expo phone and computer on the same Wi-Fi. Chrome is automatically detected on Windows, with Edge as a fallback. You can set `CHROME_EXECUTABLE_PATH` in `server/.env` for a different installation; see `.env.example`. If using an installed browser, `PUPPETEER_SKIP_DOWNLOAD=true` during dependency installation avoids Puppeteer's browser download. Otherwise Puppeteer installs its bundled browser.
 
 1. Open Dukanpe → **Khata → Connect WhatsApp**.
-2. Enter the bot server URL. Web uses `http://localhost:4000`; a phone uses the computer's LAN address.
-3. Paste the private code from **server/data/pairing-code.txt** and choose **Connect bot server**. Do not commit or share that code.
+2. The app discovers the local service automatically and displays the actual **WhatsApp linked-device QR**. No merchant-facing server address, pairing code or setup QR is required.
+3. On the merchant's phone open **WhatsApp → Linked devices → Link a device** and scan the displayed QR. The app authorises that device and starts syncing only after the merchant account is confirmed. Display Dukanpe on a second device if WhatsApp is on the same phone.
 4. Review `catalogue.json` before first launch: its initial products and prices are samples. Saved prices can be updated through the protected catalogue API.
-5. Choose **Connect WhatsApp**. On the business/test phone open WhatsApp → Linked devices → Link a device, then scan the QR shown in Dukanpe.
+5. Keep the linking screen open until it shows **Merchant WhatsApp connected**. If another linking screen is active, use **Show QR on this device** to replace the pending scan.
 6. From a **different WhatsApp number**, send `HI` to the linked business number. Reply `1` or `MENU` for current prices, `2` or `ORDER` for ordering help, `3` for your balance, `4` for your orders or `5` for your latest invoice. To order directly, send `2 kg rice, 1 kg sugar`.
 7. The customer receives an unpaid invoice PDF, then chooses **1 Pay now / 2 Khata** in its caption. Dukanpe imports the customer, invoice, original order and one credit sale into khata within about 2.5 seconds while open.
 
 The first sample order is INR 165: 2 kg rice at INR 60/kg plus 1 kg sugar at INR 45/kg. It increases customer dues, with no receipt or paid balance fabricated.
 
-### Connect Expo Go by scanning
+### Direct linking in Expo Go
 
-For the direct flow, on the computer choose **Connect phone app → Open in Expo Go · Show QR**. Scan with Expo Go; the launch link pairs once and opens Dukanpe's WhatsApp QR screen automatically. The merchant then scans that displayed **WhatsApp linking QR** inside WhatsApp → Linked devices → Link a device. The app shows **Merchant WhatsApp connected** once the server's ready event arrives. Display the linking QR on a second device if WhatsApp is on the same phone. Native physical scanning still requires testing on the actual phones.
+Open Expo Go normally, then **Khata → Connect WhatsApp**. The linking QR opens automatically. Native discovers the service from Expo's host address; web uses the page hostname. Both default to port 4000. A deployed service address may be configured with `EXPO_PUBLIC_BOT_URL` by the developer; it is not a merchant form field.
 
-On the already-paired computer, open **Khata → Connect WhatsApp → Connect phone app → Show setup QR**. On the phone in Expo Go choose **Khata → Connect WhatsApp → Scan setup QR**, allow the camera and point it at the computer. This imports the reachable server address and pairs securely, without typing a code. The QR contains a random, single-use setup ticket valid for two minutes, not the permanent API credential. Expired/used codes need **Generate fresh setup QR**. Both devices must be on the same Wi-Fi; set `BOT_LAN_URL` if automatic LAN detection chooses the wrong adapter. Manual pairing remains available.
+Only connection status and a fresh linking QR are available before a scan. A random pending-link capability binds the scan to the requesting app. After the WhatsApp ready event verifies the merchant identity, the app receives a device access token, saved in native SecureStore or web sessionStorage. The server stores only its hash in ignored `data/authorised-devices.json`; the merchant account is pinned in ignored `data/merchant-account.json`. Business APIs still require authentication.
 
-The **Dukanpe setup QR** connects the phone app to its server. The separate **WhatsApp account QR** must be scanned inside WhatsApp → Linked devices, using the QR displayed on the computer. An already-linked shop appears connected immediately on the paired phone. The Expo camera cannot link a WhatsApp account itself. Reload Expo Go after updating the project to load the new scan option; expo-camera is included in Expo Go.
+If the shop bot is already connected, a temporary, message-free WhatsApp session generates a fresh QR for the new app. It must be scanned by the same pinned merchant. The existing bot keeps answering customers, and the temporary verification session logs out after approval. A shop session restored during startup also switches to this flow, rather than granting access without a scan or showing an error. QR expiry, retry and reconnect states appear directly on the linking screen.
+
+The original administrator pairing file and protected setup endpoints remain for developer compatibility; they are no longer part of the merchant UI. Physical scanning must be completed by the merchant on their phone.
 
 ## Groq AI replies
 
@@ -107,6 +109,8 @@ Every `/api/*` route requires `Authorization: Bearer <pairing-code>`. The pairin
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/health` | Process health |
+| POST | `/connect/whatsapp` | Open/resume a fresh WhatsApp QR challenge; no business records or API credential before scan |
+| POST | `/connect/whatsapp/status` | Poll using the pending-link capability; verified scan returns a device credential |
 | GET | `/api/snapshot` | Bot status/QR, products and invoice/khata data |
 | POST | `/api/whatsapp/start` | Start headless WhatsApp Web and generate a QR |
 | POST | `/api/whatsapp/stop` | Stop without logging out |

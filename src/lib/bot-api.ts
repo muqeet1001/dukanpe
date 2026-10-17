@@ -16,7 +16,7 @@ export type DemoResult = { reply: string; invoice: BotInvoice | null; duplicate:
 
 export function defaultBotUrl() {
   if (process.env.EXPO_PUBLIC_BOT_URL) return process.env.EXPO_PUBLIC_BOT_URL;
-  if (Platform.OS === 'web') return 'http://localhost:4000';
+  if (Platform.OS === 'web') return `http://${globalThis.location?.hostname || 'localhost'}:4000`;
   const host = Constants.expoConfig?.hostUri;
   if (host) { try { return `http://${new URL('http://' + host).hostname}:4000`; } catch { /* Use the editable fallback. */ } }
   return 'http://localhost:4000';
@@ -38,7 +38,7 @@ export async function botRequest<T>(connection: BotConnection, path: string, opt
     if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Bot request failed.');
     return data as T;
   } catch (error) {
-    if (error instanceof Error && /abort|network|fetch/i.test(error.message)) throw new Error('Cannot reach the bot. Check its server address and Wi-Fi connection.');
+    if (error instanceof Error && /abort|network|fetch/i.test(error.message)) throw new Error('Cannot reach your shop. Keep the shop computer running on the same Wi-Fi, then retry.');
     throw error;
   } finally { clearTimeout(timer); }
 }

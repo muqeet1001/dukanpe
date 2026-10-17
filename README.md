@@ -27,7 +27,7 @@ Native iOS builds require macOS/Xcode or an EAS build. No account, API key or pa
 
 - A Node + whatsapp-web.js bot with QR linking, Groq AI conversation, MongoDB persistence, PDF invoices and automatic khata sync. See [bot setup](server/README.md).
 - WhatsApp answers from the saved catalogue and the sender's own balances, orders and invoices, with pending-order edits, repeat orders and invoice PDF copies.
-- Phone setup by scanning a single-use QR from the computer, with manual pairing as a fallback.
+- Direct WhatsApp linked-device QR on fresh app installs: no merchant-facing server address, pairing code or setup QR.
 - Pay now / Khata choices, exact-amount merchant UPI QRs, local screenshot OCR and merchant receipt confirmation. Paid invoices, customer balances and Home totals update together.
 - Home with three separate summary boxes above search: white for recorded sales, light blue for confirmed receipts and navy for customer dues.
 - Home search carries the typed query into matching records; quick actions open sales, udhaar and payment history.
@@ -46,8 +46,8 @@ Native iOS builds require macOS/Xcode or an EAS build. No account, API key or pa
 
 ## Demo script
 
-1. Start the bot, pair the computer, and link the business WhatsApp account. Set the shop name and merchant UPI address in the private server environment.
-2. In Expo Go, choose Scan setup QR and scan the computer's Connect phone app QR.
+1. Start the bot and Expo. Set the shop name and merchant UPI address in the private server environment.
+2. Open Khata → Connect WhatsApp. The actual linking QR loads automatically. On the merchant phone, open WhatsApp → Linked devices → Link a device and scan that QR. Display Dukanpe on another device if WhatsApp is on the same phone.
 3. From another WhatsApp number, send HI and place an order. Natural-language orders require CONFIRM.
 4. See the invoice, one sale and customer dues appear in Dukanpe. Choose 2 Khata to retain the debt or 1 Pay now to receive the exact-amount UPI QR.
 5. After paying using the customer's own UPI app, send a screenshot in the same WhatsApp chat. It appears in Follow-ups; the balance is unchanged.

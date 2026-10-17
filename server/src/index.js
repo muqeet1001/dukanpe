@@ -10,6 +10,7 @@ import { WhatsAppAssistant } from './assistant.js';
 import { PaymentService } from './payments.js';
 import { WhatsAppBot } from './whatsapp.js';
 import { createApi } from './api.js';
+import { DeviceAccess, DirectWhatsAppLink } from './direct-link.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dataDirectory = join(root, 'data');
@@ -30,20 +31,23 @@ const ai = new GroqAI({ apiKey: process.env.AI_PROVIDER === 'off' ? '' : process
 const payments = new PaymentService(store, dataDirectory, { upiId: process.env.MERCHANT_UPI_ID || '' });
 const assistant = new WhatsAppAssistant(store, ai, payments);
 const bot = new WhatsAppBot(store, dataDirectory, { assistant, payments });
-const app = createApi({ store, bot, token, assistant, payments, extraOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean) });
+const deviceAccess = new DeviceAccess(dataDirectory);
+const directLink = new DirectWhatsAppLink(bot, deviceAccess);
+const app = createApi({ store, bot, token, assistant, payments, deviceAccess, directLink, extraOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean) });
 const port = Number(process.env.PORT || 4000);
 const server = app.listen(port, process.env.HOST || '0.0.0.0', () => {
   console.log(`Dukanpe bot API: http://localhost:${port}`);
   console.log(`Storage: ${process.env.MONGODB_URI ? 'MongoDB' : 'Local SQLite'} · AI: ${ai.enabled ? 'Groq / ' + ai.model : 'Not configured (catalogue commands still work)'}`);
   for (const entries of Object.values(networkInterfaces())) for (const item of entries || []) if (item.family === 'IPv4' && !item.internal) console.log(`Phone API URL: http://${item.address}:${port}`);
   console.log(`Pairing code file: ${pairingFile}`);
-  console.log('Open Khata > Connect WhatsApp, pair the app, then choose Connect WhatsApp.');
+  console.log('Open Khata > Connect WhatsApp. Scan the displayed QR inside the merchant WhatsApp Linked devices screen.');
   if (bot.shouldResume) void bot.start().catch(() => { bot.status = { state: 'error', qr: null, error: 'Automatic WhatsApp reconnection failed. Choose Connect WhatsApp to retry.' }; });
 });
 let closing = false;
 async function close() {
   if (closing) return;
   closing = true;
+  await directLink.clear();
   await bot.stop({ preserveEnabled: true });
   server.close(async () => { await store.close(); process.exit(0); });
   setTimeout(() => process.exit(0), 5000).unref();

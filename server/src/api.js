@@ -4,7 +4,7 @@ import { invoicePdf } from './invoice-pdf.js';
 import { setupPairing } from './setup-pairing.js';
 
 export const equalSecret = (first, second) => typeof first === 'string' && Buffer.byteLength(first) === Buffer.byteLength(second) && timingSafeEqual(Buffer.from(first), Buffer.from(second));
-export function createApi({ store, bot, token, assistant, payments, pairingBaseUrl, extraOrigins = [] }) {
+export function createApi({ store, bot, token, assistant, payments, deviceAccess, directLink, pairingBaseUrl, extraOrigins = [] }) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -29,6 +29,19 @@ export function createApi({ store, bot, token, assistant, payments, pairingBaseU
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'dukanpe-whatsapp-bot' }));
   const pairing = setupPairing({ token, baseUrl: pairingBaseUrl || process.env.BOT_LAN_URL });
   app.post('/pairing/exchange', (req, res) => pairing.exchange(req, res));
+  const directAttempts = new Map();
+  app.post('/connect/whatsapp', async (req, res) => {
+    if (!directLink) return res.status(503).json({ error: 'Restart the Dukanpe service to enable WhatsApp linking.' });
+    const now = Date.now(); const address = req.socket.remoteAddress;
+    for (const [key, attempt] of directAttempts) if (now - attempt.since >= 60000) directAttempts.delete(key);
+    const attempt = directAttempts.get(address) || { since: now, count: 0 }; attempt.count++; directAttempts.set(address, attempt);
+    if (attempt.count > 12) return res.status(429).json({ error: 'Please wait a minute before opening another WhatsApp QR.' });
+    res.json(await directLink.start(req.body?.linkToken, req.body?.replace === true));
+  });
+  app.post('/connect/whatsapp/status', async (req, res) => {
+    if (!directLink) return res.status(503).json({ error: 'WhatsApp linking is unavailable.' });
+    res.json(await directLink.status(req.body?.linkToken));
+  });
   const signPdf = (id, expires) => createHmac('sha256', token).update(`invoice-pdf:${id}:${expires}`).digest('hex');
   const signProof = (id, proofId, expires) => createHmac('sha256', token).update(`payment-proof:${id}:${proofId}:${expires}`).digest('hex');
   app.get('/download/payment/:id/:proofId', async (req, res) => {
@@ -50,7 +63,7 @@ export function createApi({ store, bot, token, assistant, payments, pairingBaseU
   });
   app.use('/api', (req, res, next) => {
     const header = req.get('authorization') || '';
-    if (!header.startsWith('Bearer ') || !equalSecret(header.slice(7), token)) return res.status(401).json({ error: 'Pairing code is incorrect. Check the server pairing-code file.' });
+    if (!header.startsWith('Bearer ') || !(equalSecret(header.slice(7), token) || deviceAccess?.accepts(header.slice(7), bot.merchantAccount?.id))) return res.status(401).json({ error: 'Shop access expired. Reconnect WhatsApp to authorise this device.' });
     next();
   });
   app.get('/api/snapshot', async (_req, res) => res.json({ ...await store.snapshot({ liveOnly: true }), status: bot.status,
@@ -95,6 +108,7 @@ export function createApi({ store, bot, token, assistant, payments, pairingBaseU
   app.use((_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   app.use((error, _req, res, _next) => {
     const message = error instanceof Error ? error.message : 'Request failed.';
+    if ([401, 409].includes(error.status)) return res.status(error.status).json({ error: message });
     const validation = /Invalid order|valid price|Product not found|JSON|too large/i.test(message);
     res.status(validation ? 400 : 500).json({ error: validation ? message : 'The bot could not complete this request. Check the server.' });
   });
