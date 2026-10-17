@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { answerQuestion, businessReducer, createDemoState, parseAmount, partyBalance, totals } from '../src/lib/domain.ts';
+import { answerQuestion, businessReducer, createDemoState, createEmptyState, removeDemoData, parseAmount, partyBalance, totals } from '../src/lib/domain.ts';
 import type { BusinessRecord, Party } from '../src/lib/domain.ts';
 
 test('sample dashboard separates sales, receipts, dues and unconfirmed alerts', () => {
@@ -107,4 +107,28 @@ test('bot import cannot inject receipts or overwrite an existing local record', 
   const wrongCustomer: BusinessRecord = { id: 'wa-sale-bad', kind: 'sale', status: 'confirmed', source: 'WhatsApp', origin: 'whatsapp-bot', invoiceId: 'bad', partyId: 'roy', amountPaise: 16500,
     title: 'Wrong customer', subtitle: 'Unpaid', evidence: 'Must not merge by name', createdAt: new Date().toISOString() };
   assert.strictEqual(businessReducer(initial, { type: 'import-whatsapp', parties: [], records: [wrongCustomer] }), initial);
+});
+
+test('sample cleanup preserves real manual entries and live orders, without fictional opening debt', () => {
+  const state = createDemoState();
+  state.records.push({ id: 'my-sale', partyId: 'neha', kind: 'sale', status: 'confirmed', amountPaise: 10000, source: 'Manual', title: 'Real sale', subtitle: 'Real', evidence: 'Merchant entry', createdAt: new Date().toISOString() });
+  const cleaned = removeDemoData(state);
+  assert.equal(cleaned.records.length, 1); assert.equal(cleaned.parties.length, 1); assert.equal(cleaned.parties[0].openingBalancePaise, 0);
+  assert.equal(totals(cleaned).dues, 10000); assert.equal(cleaned.followUps.length, 0);
+  assert.equal(createEmptyState().records.length, 0); assert.deepEqual(removeDemoData(cleaned), cleaned);
+});
+
+test('server receipt review becomes confirmed once, updating Home, Khata and follow-ups on polling', () => {
+  const party: Party = { id: 'wa-customer-real', name: 'Customer', initials: 'C', color: 'mint', openingBalancePaise: 0, note: 'Live', origin: 'whatsapp-bot' };
+  const base = { source: 'WhatsApp' as const, partyId: party.id, createdAt: new Date().toISOString(), origin: 'whatsapp-bot' as const, invoiceId: 'one', title: 'Payment', subtitle: 'Awaiting verification', evidence: 'Screenshot', amountPaise: 12000 };
+  const sale: BusinessRecord = { ...base, id: 'wa-sale-one', kind: 'sale', status: 'confirmed' };
+  const receipt: BusinessRecord = { ...base, id: 'wa-receipt-one', kind: 'receipt', status: 'review' };
+  const review = businessReducer(createEmptyState(), { type: 'import-whatsapp', parties: [party], records: [sale, receipt] });
+  assert.equal(totals(review).receipts, 0); assert.equal(partyBalance(review, party.id), 12000); assert.equal(totals(review).review, 1);
+  assert.strictEqual(businessReducer(review, { type: 'confirm-payment', id: receipt.id }), review);
+  const confirmed = businessReducer(review, { type: 'import-whatsapp', parties: [party], records: [sale, { ...receipt, status: 'confirmed' }] });
+  assert.equal(totals(confirmed).receipts, 12000); assert.equal(totals(confirmed).sales, 12000); assert.equal(totals(confirmed).dues, 0);
+  assert.equal(totals(confirmed).followUps, 0); assert.strictEqual(businessReducer(confirmed, { type: 'import-whatsapp', parties: [party], records: [sale, { ...receipt, status: 'confirmed' }] }), confirmed);
+  const rejected = businessReducer(review, { type: 'import-whatsapp', parties: [party], records: [sale] });
+  assert.equal(rejected.records.length, 1); assert.equal(totals(rejected).followUps, 0); assert.equal(totals(rejected).dues, 12000);
 });

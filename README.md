@@ -27,37 +27,39 @@ Native iOS builds require macOS/Xcode or an EAS build. No account, API key or pa
 
 - A Node + whatsapp-web.js bot with QR linking, Groq AI conversation, MongoDB persistence, PDF invoices and automatic khata sync. See [bot setup](server/README.md).
 - WhatsApp answers from the saved catalogue and the sender's own balances, orders and invoices, with pending-order edits, repeat orders and invoice PDF copies.
+- Phone setup by scanning a single-use QR from the computer, with manual pairing as a fallback.
+- Pay now / Khata choices, exact-amount merchant UPI QRs, local screenshot OCR and merchant receipt confirmation. Paid invoices, customer balances and Home totals update together.
 - Home with three separate summary boxes above search: white for recorded sales, light blue for confirmed receipts and navy for customer dues.
 - Home search carries the typed query into matching records; quick actions open sales, udhaar and payment history.
 - Recent activity on Home shows the five newest records, with a link to the complete searchable history.
-- Search across the sample WhatsApp conversations, bills, sales and payment records.
-- Source-filtered records and original sample evidence.
-- Payment confirmation with customer selection or an unmatched receipt.
+- Search across saved WhatsApp orders, invoices, sales and payment records.
+- Source-filtered records and supporting evidence.
+- Screenshot payment reviews linked to the correct invoice and customer.
 - Khata balances and a connected customer timeline.
 - Cash sales and credit sales, with validation and duplicate-command protection.
 - Follow-up filters, evidence, completion/reopening and editable reminder drafts.
 - Explicit copy-to-clipboard for reminder drafts. No messages are sent automatically.
-- A local demo assistant that answers supported English/Hindi business questions using deterministic calculations and links to records.
+- An in-app assistant that answers supported English/Hindi business questions using deterministic calculations and links to saved records.
 - Device text-to-speech for answers where available.
-- Local persistence, visible storage-error handling and a confirmed sample-data reset.
+- Empty new workspaces, migration of old sample transactions, local persistence and visible storage-error handling.
 - Responsive web preview and native safe-area/bottom-tab layouts.
 
 ## Demo script
 
-1. On Home, see recorded sales of INR 12,450, confirmed receipts of INR 9,200 and customer dues of INR 18,750.
-2. Search for Roy, then open his INR 200 PhonePe sample alert. His confirmed khata still shows INR 500.
-3. Confirm the payment for Roy. His balance becomes INR 300 and receipts increase by INR 200. Repeat confirmation does not double count.
-4. Open Follow-ups and inspect the supplier quote/invoice difference, or prepare a payment reminder.
-5. Ask “What does Roy owe?” and open the supporting records.
-6. Add a cash or credit sale, refresh, and verify that the entry persists.
+1. Start the bot, pair the computer, and link the business WhatsApp account. Set the shop name and merchant UPI address in the private server environment.
+2. In Expo Go, choose Scan setup QR and scan the computer's Connect phone app QR.
+3. From another WhatsApp number, send HI and place an order. Natural-language orders require CONFIRM.
+4. See the invoice, one sale and customer dues appear in Dukanpe. Choose 2 Khata to retain the debt or 1 Pay now to receive the exact-amount UPI QR.
+5. After paying using the customer's own UPI app, send a screenshot in the same WhatsApp chat. It appears in Follow-ups; the balance is unchanged.
+6. The merchant checks their own received payment, opens the screenshot review, acknowledges receipt and confirms. The invoice becomes paid, customer dues decrease and Home receipts increase once. Use BALANCE or INVOICE in WhatsApp to see the saved result.
 
-Use Your sources → Restore fresh sample data to restart the demo. Sample timestamps are created on first launch/reset; a demo reopened on a later day correctly has different “today” totals until it is reset.
+The app contains no fictional transactions in normal use. Development fixtures and simulated API orders are excluded from the normal data feed.
 
 ## Project structure
 
     src/app/                  Expo Router screens and four tabs
     src/components/ui.tsx     Shared native UI components
-    src/lib/domain.ts        Types, sample records, financial rules and demo answers
+    src/lib/domain.ts        Types, financial rules, fixture cleanup and record-based answers
     src/state/business.tsx   Shared state and AsyncStorage persistence
     src/theme.ts             Colour and font tokens
     tests/domain.test.ts     Financial and idempotency checks
@@ -71,8 +73,8 @@ Use Your sources → Restore fresh sample data to restart the demo. Sample times
 
 ## Integration boundary
 
-The mobile app starts with fictional sample records. The separate Node bot connects WhatsApp after its owner scans a linking QR. Customers send HI, view the menu, place orders and receive unpaid PDF invoices entirely on WhatsApp; their name and order total sync to customer khata automatically. Groq helps with conversation and natural-language orders; AI-interpreted orders require customer confirmation before booking. MongoDB persists bot customers, invoices and khata. The app connection screen only handles linking and connection settings. It does not access real GPay/PhonePe histories, capture Android notifications, read SMS, run OCR or implement production merchant accounts. The voice control opens Ask; speech input is not implemented. The speaker button uses device text-to-speech.
+The mobile app starts empty. The Node bot connects WhatsApp after its owner links the account. Groq helps interpret text; prices, balances, order booking and receipt accounting come from validated database operations. MongoDB persists bot customers, invoices, khata and payment review metadata. Tesseract.js reads submitted screenshot images locally. Screenshots alone never prove bank settlement: merchant confirmation is required. This version does not read GPay/PhonePe histories, capture Android notifications, read SMS, handle partial settlements/refunds or receive bank/provider webhooks. Speech input is not implemented; the speaker uses device text-to-speech.
 
-AsyncStorage is an unencrypted demo store and must not hold production financial records or credentials. The server remains authoritative when backend services are connected. See the [app architecture](docs/expo-mern-app-architecture.md) and [automatic-payment architecture](docs/automatic-payment-tracking-architecture.md) for the native capture, ingestion, MongoDB, evidence and confirmation design.
+AsyncStorage is an unencrypted device cache for records; credentials use native SecureStore or web sessionStorage. The server remains authoritative for WhatsApp orders and payments. Manual entries stay on the device. See the [bot setup](server/README.md) for implemented behaviour; architecture documents also describe future integrations.
 
-Navigation, financial rules and source evidence are separated so a real API can replace the sample state without rebuilding the screens.
+Navigation, financial rules and source evidence are separated from the API and persistence adapters.

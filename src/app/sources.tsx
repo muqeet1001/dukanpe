@@ -1,39 +1,30 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { Modal, View } from 'react-native';
-import { Badge, Button, Card, Icon, Page, SourceIcon, T, ui } from '../components/ui';
-import { Source } from '../lib/domain';
+import React from 'react';
+import { View } from 'react-native';
+import { Badge, Button, Card, Icon, Page, T, ui } from '../components/ui';
 import { useBusiness } from '../state/business';
+import { useWhatsApp } from '../state/whatsapp';
 import { colors as c } from '../theme';
 
 export default function SourcesScreen() {
-  const { state, reset } = useBusiness();
-  const [resetVisible, setResetVisible] = useState(false);
-  return <Page title="Your sources" subtitle="Know where every record comes from." back>
-    <Card style={{ backgroundColor: c.sky, borderColor: '#DDF0FB', gap: 11 }}>
-      <Badge label="MERCHANT WORKSPACE" /><T weight="extra" style={{ fontSize: 21, letterSpacing: -0.6 }}>One shop. One clear picture.</T>
-      <T style={{ fontSize: 12, color: '#6585A0', lineHeight: 21 }}>Your sample shop stays on this device. You can pair the Node WhatsApp bot to import order invoices. Bank accounts and payment apps are not connected.</T>
+  const { state } = useBusiness();
+  const { snapshot, error } = useWhatsApp();
+  return <Page title="Your shop" subtitle="Connected records. Clear balances." back>
+    <Card style={{ backgroundColor: c.sky, gap: 14 }}><Badge label="MERCHANT WORKSPACE" /><T weight="extra" style={{ fontSize: 23 }}>{snapshot?.shopName || 'Dukanpe'}</T>
+      <T style={ui.help}>Your live WhatsApp orders, invoices, payment evidence and khata stay connected. Manual entries are saved on this device.</T>
     </Card>
-    <Card style={{ gap: 13 }}><T weight="extra" style={{ fontSize: 16 }}>Connect WhatsApp</T><T style={ui.help}>Customers get the menu, place orders and receive invoices on WhatsApp. Their name and order total appear in Khata automatically.</T><Button title="Connect WhatsApp" icon="logo-whatsapp" onPress={() => router.push('/whatsapp')} /></Card>
-    {([
-      { source: 'WhatsApp', title: 'WhatsApp records', description: 'Sample chats and imported bot orders.', filter: 'WhatsApp', future: 'Use WhatsApp orders above to link the bot. Older sample conversations remain labelled as samples.' },
-      { source: 'PhonePe', title: 'Payment alerts', description: 'GPay and PhonePe alerts in one inbox.', filter: 'payments', future: 'Real Android capture needs a native notification listener, permission and a development build.' },
-      { source: 'Bill', title: 'Bills & invoices', description: 'Your bill details, linked to the full story.', filter: 'Bill', future: 'Document capture and OCR can connect to these record screens.' },
-    ] as { source: Source; title: string; description: string; filter: string; future: string }[]).map((source) => <Card key={source.title} style={{ gap: 14 }}>
-      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}><SourceIcon source={source.source} /><View style={{ flex: 1, gap: 6 }}><T weight="extra" style={{ fontSize: 14 }}>{source.title}</T><T style={{ color: c.muted, fontSize: 11 }}>{source.description}</T></View></View>
-      <View style={ui.between}><Badge label={source.source === 'WhatsApp' ? 'Chats & orders' : 'Sample records'} /><T style={{ color: c.muted, fontSize: 10 }}>{source.source === 'WhatsApp' ? 'See bot setup above' : 'Not connected'}</T></View>
-      <Button title="Explore records" secondary icon="arrow-forward-outline" onPress={() => router.push({ pathname: '/records', params: { source: source.filter } })} />
-      <T style={ui.help}>{source.future}</T>
-    </Card>)}
-    <Card style={{ gap: 13 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Icon name="phone-portrait-outline" size={19} color={c.blue} /><T weight="extra" style={{ fontSize: 14 }}>Local demo storage</T></View>
-      <T style={{ color: c.muted, fontSize: 12, lineHeight: 20 }}>{state.records.length} records and {state.parties.length} customer accounts. Changes survive app refresh on this device. Bot invoices stay on the server and return on the next sync after a demo reset. This demo store is not encrypted financial storage.</T>
-      <Button title="Restore fresh sample data" secondary icon="refresh-outline" onPress={() => setResetVisible(true)} />
+    <Card style={{ gap: 14 }}><View style={ui.between}><T weight="extra">WhatsApp orders</T><Badge label={snapshot?.status.state === 'connected' ? 'Connected' : 'Connect'} /></View>
+      <T style={ui.help}>Customers order in chat, receive an invoice, then choose Pay now or Khata. Payment screenshots appear in Follow-ups for your review.</T>
+      <Button title="WhatsApp connection" icon="logo-whatsapp" onPress={() => router.push('/whatsapp')} />
     </Card>
-    <Modal visible={resetVisible} transparent animationType="fade" onRequestClose={() => setResetVisible(false)}>
-      <View style={{ flex: 1, backgroundColor: '#00234F77', padding: 26, alignItems: 'center', justifyContent: 'center' }}><Card style={{ width: '100%', maxWidth: 380, gap: 18 }}>
-        <T weight="extra" style={{ fontSize: 21 }}>Start a fresh demo?</T><T style={{ color: c.muted, lineHeight: 22, fontSize: 13 }}>Your demo entries, payment confirmations and completed follow-ups will be replaced with the original sample records.</T>
-        <Button title="Restore sample data" onPress={() => { reset(); setResetVisible(false); }} /><Button title="Keep my changes" secondary onPress={() => setResetVisible(false)} />
-      </Card></View>
-    </Modal>
+    <Card style={{ gap: 12 }}><View style={{ flexDirection: 'row', gap: 9 }}><Icon name="qr-code-outline" color={c.blue} /><T weight="extra">Receive UPI payments</T></View>
+      <T selectable weight="bold" style={{ fontSize: 16 }}>{snapshot?.merchant?.upiId || 'Set MERCHANT_UPI_ID on the bot server'}</T>
+      <T style={ui.help}>Order QRs use this UPI ID and the exact invoice total. Check your bank or payment app before confirming a receipt. Bank accounts and payment apps are not linked for automatic settlement verification.</T>
+    </Card>
+    <Card style={{ gap: 12 }}><T weight="extra">Your records</T><T style={ui.help}>{state.records.length} records · {state.parties.length} customer accounts. WhatsApp records sync from the server; no sample transactions are included.</T>
+      <Button title="Open all records" secondary onPress={() => router.push('/records')} />
+      <Button title="Review payment screenshots" secondary onPress={() => router.push('/follow-ups')} />
+    </Card>
+    {!!error && <T style={{ color: c.amber, fontSize: 12 }}>{error}</T>}
   </Page>;
 }

@@ -27,7 +27,8 @@
       "expo-router",
       "expo-font",
       "expo-status-bar",
-      "expo-secure-store"
+      "expo-secure-store",
+      ["expo-camera", { "cameraPermission": "Allow Dukanpe to scan your shop setup QR.", "recordAudioAndroid": false, "barcodeScannerEnabled": true }]
     ],
     "scheme": "dukanpe"
   }

@@ -92,5 +92,5 @@ export function menuText(catalogue, shopName) {
 }
 
 export function invoiceText(invoice, shopName) {
-  return `${shopName}\nORDER INVOICE ${invoice.number}\n${invoice.isDemo ? 'SIMULATED ORDER\n' : ''}\n${invoice.items.map((item) => `${item.quantityMilli / 1000} ${item.unit} ${item.name}: ${money(item.totalPaise)}`).join('\n')}\n\nTotal: ${money(invoice.totalPaise)}\nPayment: UNPAID — added to khata\nWhatsApp-order balance after this invoice: ${money(invoice.balanceAfterPaise)}\n\nNo payment has been recorded. No tax calculated.`;
+  return `${shopName}\nORDER INVOICE ${invoice.number}\n${invoice.isDemo ? 'SIMULATED ORDER\n' : ''}\n${invoice.items.map((item) => `${item.quantityMilli / 1000} ${item.unit} ${item.name}: ${money(item.totalPaise)}`).join('\n')}\n\nTotal: ${money(invoice.totalPaise)}\nPayment: ${invoice.paymentStatus === 'paid' ? 'PAID — receipt confirmed by merchant' : 'UNPAID — added to khata'}\nWhatsApp-order balance after this invoice: ${money(invoice.balanceAfterPaise)}\n\n${invoice.paymentStatus === 'paid' ? 'Payment confirmed by merchant.' : 'No payment has been recorded.'} No tax calculated.`;
 }

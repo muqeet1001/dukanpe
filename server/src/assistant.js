@@ -1,3 +1,4 @@
+import { chatKey } from './payments.js';
 import { chatCommand, menuText, money, parseOrder, validateIncoming } from './orders.js';
 import { createHash } from 'node:crypto';
 import { balanceText, invoiceReply, languageOf, localRequest, matchProducts, ordersText, productText, statusText } from './customer-data.js';
@@ -6,7 +7,11 @@ const fingerprint = (parsed) => JSON.stringify(parsed.items.map(({ productId, qu
 const preview = (parsed) => `Please check your order:\n\n${parsed.items.map((item) => `${item.quantityMilli / 1000} ${item.unit} ${item.name} · ${money(item.totalPaise)}`).join('\n')}\n\nTotal: ${money(parsed.totalPaise)}\n\nReply CONFIRM to receive your invoice and add this unpaid total to khata. Reply CANCEL to discard.\nNothing has been added yet.`;
 
 export class WhatsAppAssistant {
-  constructor(store, ai) { this.store = store; this.ai = ai; }
+  constructor(store, ai, payments) { this.store = store; this.ai = ai; this.payments = payments; }
+  async completed(input, result) {
+    if (result.invoice && this.payments && !result.duplicate) await this.payments.checkout(input, result.invoice);
+    return result;
+  }
   async previewOrder(input, orderBody, sourceBody = input.body) {
     const parsed = parseOrder(orderBody, await this.store.catalogue());
     if (parsed.error) return this.store.saveReply(input, parsed.error + '\n\nSend MENU to see prices. Nothing has been added to khata.');
@@ -22,6 +27,7 @@ export class WhatsAppAssistant {
     if (request.intent === 'product') return reply(productText(await this.store.catalogue(), request.productIds || []));
     if (request.intent === 'balance') return reply(balanceText(await this.store.customerAccount(input), request.language || languageOf(input.body)));
     if (request.intent === 'orders') return reply(ordersText(await this.store.customerAccount(input)));
+    if (request.intent === 'payment' && this.payments) return this.payments.choose(input, 'pay', await this.store.conversation(chatKey(input)));
     if (request.intent === 'payment') return reply('I cannot verify or record a payment from a chat message. Please ask the shopkeeper to confirm it.\n\n' + balanceText(await this.store.customerAccount(input), request.language));
     if (['invoice', 'order_status', 'repeat_order'].includes(request.intent)) {
       const invoice = await this.store.customerInvoice(input, request.invoiceRef || 'latest');
@@ -50,6 +56,12 @@ export class WhatsAppAssistant {
         ? 'Pending order preview discarded. No invoice or khata entry was created for that preview. Existing invoices are unchanged. Send MENU to start again.'
         : 'There is no pending order preview to cancel. Existing invoices and khata entries are unchanged. Contact the shopkeeper to cancel an invoiced order.');
     };
+    if (this.payments && (/^(?:PAY(?: NOW)?|UPI|QR|PAYMENT|भुगतान)$/i.test(command) || (['checkout', 'payment'].includes(pending?.kind) && command === '1'))) return this.payments.choose(input, 'pay', pending);
+    if (this.payments && (/^(?:KHATA|UDHAAR|PAY LATER|खाता|उधार)$/i.test(command) || (['checkout', 'payment'].includes(pending?.kind) && command === '2'))) return this.payments.choose(input, 'khata', pending);
+    if (pending && ['checkout', 'payment'].includes(pending.kind)) {
+      if (command === 'CONFIRM') return reply('This order is already invoiced. Reply 1 to pay now or 2 to keep it in khata.');
+      pending = null;
+    }
     if (command === 'CANCEL') return cancelPending();
     if (command === 'CONFIRM') {
       if (!pending || pending.expiresAt < Date.now()) { await this.store.clearConversation(chatKey); return reply('There is no current order to confirm. Please send your order again or reply MENU.'); }
@@ -65,7 +77,7 @@ export class WhatsAppAssistant {
         orderBody: pending.orderBody, name: pending.customerName, phone: pending.phone, customerKey: pending.customerKey });
       await this.store.saveReply(input, result.reply, result.invoice.id);
       await this.store.clearConversation(chatKey);
-      return result;
+      return this.completed(input, result);
     }
     if (chatCommand(input.body)) {
       if (chatCommand(input.body) === 'welcome') await this.store.clearConversation(chatKey);
@@ -88,12 +100,12 @@ export class WhatsAppAssistant {
     // Explicit catalogue-format orders continue to work when AI is unavailable.
     if (!parseOrder(input.body, catalogue).error) {
       if (pending) return this.previewOrder(input, input.body);
-      return this.store.process(input);
+      return this.completed(input, await this.store.process(input));
     }
     const context = pending ? { pendingOrder: { kind: pending.kind || 'order', productIds: pending.productIds || [],
       items: (pending.items || parseOrder(pending.orderBody || '', catalogue).items || []).map((item) => ({ productId: item.productId, quantity: item.quantityMilli / 1000, unit: item.unit })) } } : {};
     const answer = await this.ai.interpret(input.body, catalogue, context);
-    if (!answer) return this.store.process(input);
+    if (!answer) return this.completed(input, await this.store.process(input));
     const dataReply = await this.answerFromData(input, answer); if (dataReply) return dataReply;
     if (answer.intent === 'menu') return reply(menuText(catalogue, this.store.shopName));
     if (answer.intent === 'cart') return showCart();

@@ -23,7 +23,7 @@ export default function RecordsScreen() {
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
       {filters.map((item) => <Chip key={item} label={item} active={filter === item} onPress={() => setFilter(item)} />)}
     </ScrollView>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T weight="bold" style={{ color: c.muted, fontSize: 11 }}>{records.length} records</T><T style={{ color: c.muted, fontSize: 10 }}>Sample data</T></View>
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T weight="bold" style={{ color: c.muted, fontSize: 11 }}>{records.length} records</T><T style={{ color: c.muted, fontSize: 10 }}>Your records</T></View>
     <Card style={{ paddingVertical: 0 }}>{records.length ? records.map((record, index) => <RecordRow key={record.id} record={record} last={index === records.length - 1} />)
       : <Empty title="No matching records" description="Try a customer name, source or another keyword." />}</Card>
   </Page>;

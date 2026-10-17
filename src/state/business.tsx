@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react';
-import { Action, BusinessState, businessReducer, createDemoState } from '../lib/domain';
+import { Action, BusinessState, businessReducer, createEmptyState, removeDemoData } from '../lib/domain';
 
-// Preserve existing demo data across the Dukanpe rename.
+// Keep the existing key so real entries survive the one-time sample cleanup.
 const STORAGE_KEY = 'jodly-demo-v1';
 type BusinessContextValue = {
   state: BusinessState;
@@ -28,7 +28,7 @@ function isBusinessState(value: unknown): value is BusinessState {
 }
 
 export function BusinessProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(businessReducer, undefined, createDemoState);
+  const [state, dispatch] = useReducer(businessReducer, undefined, createEmptyState);
   const [ready, setReady] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -39,8 +39,8 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       if (!active || !raw) return;
       const saved: unknown = JSON.parse(raw);
       if (!isBusinessState(saved)) throw new Error('Unrecognised saved state');
-      dispatch({ type: 'hydrate', state: saved });
-    }).catch(() => { if (active) setStorageError('Saved demo could not be loaded. A fresh sample is open.'); })
+      dispatch({ type: 'hydrate', state: removeDemoData(saved) });
+    }).catch(() => { if (active) setStorageError('Saved records could not be loaded. Reconnect the server to restore synced orders.'); })
       .finally(() => { if (active) setReady(true); });
     return () => { active = false; };
   }, []);
@@ -57,7 +57,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   }, [toast]);
   const notify = useCallback((message: string) => setToast(message), []);
   const reset = useCallback(() => {
-    dispatch({ type: 'reset', state: createDemoState() }); setStorageError(null); notify('Fresh demo loaded');
+    dispatch({ type: 'reset', state: createEmptyState() }); setStorageError(null); notify('Local records cleared');
   }, [notify]);
   return <BusinessContext.Provider value={{ state, dispatch, ready, storageError, reset, toast, notify }}>{children}</BusinessContext.Provider>;
 }

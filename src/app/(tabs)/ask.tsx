@@ -13,7 +13,7 @@ const suggestions = [
   { icon: 'trending-up-outline' as const, text: 'What are today’s sales?', sub: 'Sales & collections' },
   { icon: 'people-outline' as const, text: 'Who owes me money?', sub: 'Your customer dues' },
   { icon: 'checkmark-done-outline' as const, text: 'What needs my attention?', sub: 'Today’s follow-ups' },
-  { icon: 'wallet-outline' as const, text: 'What does Roy owe?', sub: 'See the full picture' },
+  { icon: 'wallet-outline' as const, text: 'What are total customer dues?', sub: 'See the full picture' },
 ];
 export default function AskScreen() {
   const { state, notify } = useBusiness();
@@ -46,7 +46,7 @@ export default function AskScreen() {
         <View style={ui.between}><View style={{ gap: 5 }}><T weight="extra" style={{ fontSize: 27, letterSpacing: -1 }}>Just ask Dukanpe<T weight="extra" style={{ color: c.blue, fontSize: 27 }}>.</T></T><T style={{ fontSize: 11, color: c.muted }}>Your shop makes sense here.</T></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Change answer language" onPress={() => setHindi(!hindi)} style={{ padding: 10, backgroundColor: c.white, borderRadius: 11 }}><T weight="bold" style={{ color: c.blue, fontSize: 11 }}>{hindi ? 'हिन्दी' : 'EN'} ⇄</T></Pressable>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Badge label="DEMO ASSISTANT" /><T style={{ fontSize: 9, color: c.muted }}>Calculated from your sample records</T></View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Badge label="BUSINESS ASSISTANT" /><T style={{ fontSize: 9, color: c.muted }}>Calculated from your saved records</T></View>
       </View>
       <ScrollView ref={list} contentContainerStyle={{ padding: 22, paddingTop: 8, gap: 18, flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => { if (messages.length) list.current?.scrollToEnd({ animated: true }); }}>
@@ -88,7 +88,7 @@ export default function AskScreen() {
             onSubmitEditing={() => send(input)} />
           <IconButton name="arrow-up-outline" label="Send question" disabled={!input.trim() || busy} onPress={() => send(input)} style={{ backgroundColor: input.trim() && !busy ? c.blue : '#DCE9F2', width: 40, height: 40, borderRadius: 13 }} color={input.trim() && !busy ? c.white : '#8DA7BB'} />
         </View>
-        <T style={{ fontSize: 9, color: '#98A8B8', textAlign: 'center' }}>Demo answers from records · Speaker reads answers aloud</T>
+        <T style={{ fontSize: 9, color: '#98A8B8', textAlign: 'center' }}>Answers from your records · Speaker reads answers aloud</T>
       </View>
     </KeyboardAvoidingView>
   </SafeAreaView>;

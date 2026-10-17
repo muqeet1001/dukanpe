@@ -22,7 +22,7 @@ export default function HomeScreen() {
     <View style={s.businessSection}>
       <View style={ui.between}>
         <View style={{ gap: 5 }}><T weight="bold" style={s.heading}>Your business today</T><T style={s.summaryDate}>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}</T></View>
-        <View style={s.sampleBadge}><T weight="semi" style={s.sampleLabel}>{state.records.some((record) => record.origin === 'whatsapp-bot' && !record.isDemo) ? 'Sample + WhatsApp' : 'Sample data'}</T></View>
+        <View style={s.sampleBadge}><T weight="semi" style={s.sampleLabel}>Your records</T></View>
       </View>
 
       <Card style={s.salesCard}>
@@ -51,6 +51,9 @@ export default function HomeScreen() {
       </View>
     </View>
 
+    {summary.review > 0 && <Pressable accessibilityRole="button" onPress={() => router.push('/follow-ups')}>
+      <Card style={{ backgroundColor: c.amberLight, flexDirection: 'row', alignItems: 'center', gap: 12 }}><Icon name="shield-checkmark-outline" color={c.amber} /><View style={{ flex: 1, gap: 5 }}><T weight="extra" style={{ fontSize: 14 }}>{summary.review} payment{summary.review === 1 ? '' : 's'} to verify</T><T style={{ fontSize: 11, color: c.muted }}>Review screenshots before updating khata</T></View><Icon name="arrow-forward-outline" color={c.amber} /></Card>
+    </Pressable>}
     <View style={s.searchSection}>
       <View style={s.searchBox}>
         <Icon name="search-outline" size={23} color={c.navy} />

@@ -19,7 +19,7 @@ export class MongoStore {
   }
   constructor(client, db, shopName, prefix) {
     this.client = client; this.db = db; this.shopName = shopName;
-    this.collections = Object.fromEntries(['products', 'customers', 'messages', 'invoices', 'ledger', 'outbox', 'conversations']
+    this.collections = Object.fromEntries(['products', 'customers', 'messages', 'invoices', 'ledger', 'outbox', 'conversations', 'payments', 'payment_proofs']
       .map((name) => [name, db.collection(prefix + name)]));
   }
   async initialise(catalogue) {
@@ -33,6 +33,8 @@ export class MongoStore {
       c.outbox.createIndex({ status: 1 }),
       c.outbox.createIndex({ destination: 1 }),
       c.conversations.createIndex({ expiresAtDate: 1 }, { expireAfterSeconds: 0 }),
+      c.payments.createIndex({ confirmedReference: 1 }, { unique: true, sparse: true }),
+      c.payment_proofs.createIndex({ invoiceId: 1 }),
     ]);
     await c.products.bulkWrite(validateCatalogue(catalogue).map(({ id, ...product }, position) => ({
       updateOne: { filter: { _id: id }, update: { $setOnInsert: { ...product, position } }, upsert: true },
@@ -72,11 +74,55 @@ export class MongoStore {
   async invoice(id) {
     const row = await this.collections.invoices.findOne({ _id: id });
     if (!row) return null;
-    const [customer, outbox] = await Promise.all([
-      this.collections.customers.findOne({ _id: row.customerId }), this.collections.outbox.findOne({ _id: id }),
+    const [customer, outbox, payment] = await Promise.all([
+      this.collections.customers.findOne({ _id: row.customerId }), this.collections.outbox.findOne({ _id: id }), this.payment(id),
     ]);
     return { ...publicDocument(row), customerName: customer.name, customerPhone: customer.phone,
-      delivery: outbox.status, deliveryError: outbox.error, destination: outbox.destination, paymentStatus: 'unpaid' };
+      delivery: outbox.status, deliveryError: outbox.error, destination: outbox.destination, paymentStatus: payment?.status === 'confirmed' ? 'paid' : 'unpaid', paymentReview: payment?.status || null };
+  }
+  async payment(id) { const row = await this.collections.payments.findOne({ _id: id }); return row ? publicDocument(row) : null; }
+  async saveProof(proof) {
+    const c = this.collections; const session = this.client.startSession(); let result;
+    try {
+      await session.withTransaction(async () => {
+        const current = await c.payments.findOne({ _id: proof.invoiceId }, { session });
+        const previous = await c.payment_proofs.findOne({ _id: proof.proofId }, { session });
+        if (previous && previous.invoiceId !== proof.invoiceId) { result = { status: 'reused' }; return; }
+        if (current?.status === 'confirmed' || current?.proofId === proof.proofId) { result = publicDocument(current); return; }
+        const invoice = await c.invoices.findOne({ _id: proof.invoiceId, isDemo: false }, { session });
+        if (!invoice) throw new Error('Payment invoice not found.');
+        result = { ...proof, amountPaise: invoice.totalPaise, customerId: invoice.customerId, status: 'review' };
+        await c.payment_proofs.updateOne({ _id: proof.proofId }, { $setOnInsert: { invoiceId: proof.invoiceId } }, { upsert: true, session });
+        await c.payments.replaceOne({ _id: proof.invoiceId }, { _id: proof.invoiceId, ...result }, { upsert: true, session });
+      });
+      return result;
+    } catch (error) {
+      if (error.code === 11000) {
+        const previous = await c.payment_proofs.findOne({ _id: proof.proofId });
+        if (previous?.invoiceId !== proof.invoiceId) return { status: 'reused' };
+        const payment = await this.payment(proof.invoiceId); if (payment) return payment;
+      }
+      throw error;
+    } finally { await session.endSession(); }
+  }
+  async reviewPayment(id, proofId, decision) {
+    const c = this.collections; const session = this.client.startSession(); let result;
+    try {
+      await session.withTransaction(async () => {
+        const payment = await c.payments.findOne({ _id: id }, { session });
+        if (!payment || payment.proofId !== proofId) throw new Error('Payment proof changed. Refresh and review again.');
+        if (payment.status === 'confirmed') { result = publicDocument(payment); return; }
+        if (payment.status !== 'review' || !['confirmed', 'rejected'].includes(decision)) throw new Error('Payment is not awaiting review.');
+        const reviewedAt = new Date().toISOString();
+        const confirmedReference = decision === 'confirmed' ? payment.checks.reference : '';
+        if (confirmedReference && await c.payments.findOne({ confirmedReference }, { session })) throw new Error('Payment reference already used for another invoice.');
+        await c.payments.updateOne({ _id: id }, { $set: { status: decision, reviewedAt, verifiedBy: 'merchant', ...(confirmedReference ? { confirmedReference } : {}) } }, { session });
+        if (decision === 'confirmed') await c.customers.updateOne({ _id: payment.customerId }, { $inc: { balancePaise: -payment.amountPaise } }, { session });
+        result = { ...publicDocument(payment), status: decision, reviewedAt, verifiedBy: 'merchant' };
+      });
+      return result;
+    } catch (error) { if (error.code === 11000) throw new Error('Payment reference already used for another invoice.'); throw error; }
+    finally { await session.endSession(); }
   }
   async message(messageId, isDemo = false) {
     const row = await this.collections.messages.findOne({ _id: `${isDemo ? 'demo' : 'live'}:${messageId}` });
@@ -141,10 +187,11 @@ export class MongoStore {
   }
   async delivery(id, status, error = null, messageId = null) { await this.collections.outbox.updateOne({ _id: id }, { $set: { status, error, messageId } }); }
   async pending() { return (await this.collections.outbox.find({ status: 'pending' }, { projection: { _id: 1 } }).toArray()).map((row) => row._id); }
-  async snapshot() {
-    const rows = await this.collections.invoices.find().sort({ createdAt: -1, _id: -1 }).toArray();
-    const customers = await this.collections.customers.find().toArray();
+  async snapshot({ liveOnly = false } = {}) {
+    const rows = await this.collections.invoices.find(liveOnly ? { isDemo: false } : {}).sort({ createdAt: -1, _id: -1 }).toArray();
+    const customers = await this.collections.customers.find(liveOnly ? { mode: 'live' } : {}).toArray();
     const invoices = await Promise.all(rows.map((row) => this.invoice(row._id)));
-    return snapshotData(this.shopName, await this.catalogue(), invoices, customers.map(publicDocument));
+    const payments = (await this.collections.payments.find().toArray()).map(publicDocument).filter((p) => invoices.some((i) => i.id === p.invoiceId));
+    return snapshotData(this.shopName, await this.catalogue(), invoices, customers.map(publicDocument), payments);
   }
 }

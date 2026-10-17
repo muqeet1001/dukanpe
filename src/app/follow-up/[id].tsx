@@ -17,8 +17,7 @@ export default function FollowUpScreen() {
   const party = state.parties.find((item) => item.id === task.partyId);
   const defaultDraft = task.kind === 'collection'
     ? 'Hi ' + (party?.name.split(' ')[0] ?? 'there') + ', a gentle reminder about your outstanding ' + money(party ? Math.max(0, partyBalance(state, party.id)) : 0) + '. You mentioned paying today. Please let me know when convenient. Thank you!'
-    : task.kind === 'invoice' ? 'Hi Shree Foods, our accepted quote was ₹480 per rice bag, but invoice SF-1042 shows ₹500. Could you please check the ₹100 difference for 5 bags? Thank you.'
-    : 'Hi Shree Foods, please confirm whether our rice delivery is on schedule for tomorrow before 10 am. Thank you!';
+    : 'Hello, following up about ' + task.title + '. ' + task.description;
   return <Page title="Time for a follow-up" subtitle="The context, evidence and next step." back>
     <Card style={{ gap: 16 }}>
       <View style={ui.between}><View style={{ backgroundColor: c.sky, padding: 12, borderRadius: 15 }}><Icon name={task.kind === 'invoice' ? 'document-text-outline' : task.kind === 'delivery' ? 'cube-outline' : 'chatbubble-ellipses-outline'} color={c.blue} /></View>
@@ -38,9 +37,9 @@ export default function FollowUpScreen() {
       <T style={ui.help}>You decide whether to send it. Dukanpe does not send this message.</T>
     </Card>}
     {task.kind === 'payment' && task.recordId && <Button title="Review this payment" icon="shield-checkmark-outline" onPress={() => router.push({ pathname: '/record/[id]', params: { id: task.recordId! } })} />}
-    <Button secondary title={task.status === 'done' ? 'Reopen follow-up' : 'Mark follow-up done'} icon="checkmark-done-outline" onPress={() => {
+    {!task.id.startsWith('wa-payment-') && <Button secondary title={task.status === 'done' ? 'Reopen follow-up' : 'Mark follow-up done'} icon="checkmark-done-outline" onPress={() => {
       dispatch({ type: 'follow-up', id: task.id, done: task.status !== 'done' }); notify(task.status === 'done' ? 'Follow-up reopened' : 'Follow-up completed');
-    }} />
+    }} />}
     <T style={[ui.help, { textAlign: 'center' }]}>Completing a follow-up changes the task status. Payment confirmation happens in the payment record.</T>
   </Page>;
 }

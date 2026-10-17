@@ -56,7 +56,7 @@ export default function EntryScreen() {
       </Card>
       {!!error && <T accessibilityLiveRegion="polite" style={{ fontSize: 12, color: '#B95B4D' }}>{error}</T>}
       <Button title={paid ? 'Save sale' : 'Save udhaar entry'} icon="checkmark-outline" onPress={save} disabled={saved} />
-      <T style={[ui.help, { textAlign: 'center' }]}>This demo saves entries on this device.</T>
+      <T style={[ui.help, { textAlign: 'center' }]}>Manual entries are saved on this device. WhatsApp orders sync from your server.</T>
     </Page>
   </KeyboardAvoidingView>;
 }

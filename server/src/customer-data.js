@@ -39,7 +39,7 @@ export function balanceText(account, language = 'en') {
 
 export function ordersText(account) {
   if (!account.orders.length) return 'I have no recorded orders for this WhatsApp account. Send MENU to get started.';
-  return `Your latest ${account.orders.length} of ${account.orderCount} recorded orders:\n\n${account.orders.map((order) => `${order.number}\n${new Date(order.createdAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} · ${money(order.totalPaise)} · UNPAID\n${order.items.map((item) => `${item.quantityMilli / 1000} ${item.unit} ${item.name}`).join(', ')}`).join('\n\n')}\n\nSend INVOICE followed by an invoice number for its PDF, or REPEAT LAST ORDER for a new preview at current prices.`;
+  return `Your latest ${account.orders.length} of ${account.orderCount} recorded orders:\n\n${account.orders.map((order) => `${order.number}\n${new Date(order.createdAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} · ${money(order.totalPaise)} · ${order.paymentStatus === 'paid' ? 'PAID' : 'UNPAID'}\n${order.items.map((item) => `${item.quantityMilli / 1000} ${item.unit} ${item.name}`).join(', ')}`).join('\n\n')}\n\nSend INVOICE followed by an invoice number for its PDF, or REPEAT LAST ORDER for a new preview at current prices.`;
 }
 
 export function productText(catalogue, productIds) {
@@ -50,7 +50,7 @@ export function productText(catalogue, productIds) {
 
 export function statusText(invoice) {
   if (!invoice) return 'No matching order was found for your WhatsApp account. Send MY ORDERS to see your records.';
-  return `Order ${invoice.number}\nRecorded: ${new Date(invoice.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\nTotal: ${money(invoice.totalPaise)}\nPayment: UNPAID\n\nThis database records the order and invoice. Delivery/fulfilment status is not recorded; please check with the shopkeeper.`;
+  return `Order ${invoice.number}\nRecorded: ${new Date(invoice.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\nTotal: ${money(invoice.totalPaise)}\nPayment: ${invoice.paymentStatus === 'paid' ? 'PAID' : 'UNPAID'}${invoice.paymentReview === 'review' ? '\nScreenshot awaiting merchant verification. Do not pay again.' : invoice.paymentReview === 'rejected' ? '\nScreenshot rejected by merchant. Send PAY NOW to submit the correct screenshot.' : ''}\n\nThis database records the order and invoice. Delivery/fulfilment status is not recorded; please check with the shopkeeper.`;
 }
 
 export const invoiceReply = (invoice, shopName) => invoice ? invoiceText(invoice, shopName)

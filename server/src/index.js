@@ -7,6 +7,7 @@ import { Store } from './store.js';
 import { MongoStore } from './mongo-store.js';
 import { GroqAI } from './groq.js';
 import { WhatsAppAssistant } from './assistant.js';
+import { PaymentService } from './payments.js';
 import { WhatsAppBot } from './whatsapp.js';
 import { createApi } from './api.js';
 
@@ -18,7 +19,7 @@ if (!existsSync(pairingFile)) writeFileSync(pairingFile, randomBytes(24).toStrin
 const token = readFileSync(pairingFile, 'utf8').trim();
 if (token.length < 24) throw new Error('Invalid server pairing code. Use at least 24 characters.');
 const catalogue = JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8'));
-const shopName = process.env.SHOP_NAME || 'Dukanpe Demo Shop';
+const shopName = process.env.SHOP_NAME || 'Dukanpe';
 let store;
 try {
   store = process.env.MONGODB_URI
@@ -26,9 +27,10 @@ try {
     : new Store(join(dataDirectory, 'dukanpe.sqlite'), catalogue, shopName);
 } catch { console.error('Database connection failed. Check server/.env, Atlas credentials and network access.'); process.exit(1); }
 const ai = new GroqAI({ apiKey: process.env.AI_PROVIDER === 'off' ? '' : process.env.GROQ_API_KEY });
-const assistant = new WhatsAppAssistant(store, ai);
-const bot = new WhatsAppBot(store, dataDirectory, { assistant });
-const app = createApi({ store, bot, token, assistant, extraOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean) });
+const payments = new PaymentService(store, dataDirectory, { upiId: process.env.MERCHANT_UPI_ID || '' });
+const assistant = new WhatsAppAssistant(store, ai, payments);
+const bot = new WhatsAppBot(store, dataDirectory, { assistant, payments });
+const app = createApi({ store, bot, token, assistant, payments, extraOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean) });
 const port = Number(process.env.PORT || 4000);
 const server = app.listen(port, process.env.HOST || '0.0.0.0', () => {
   console.log(`Dukanpe bot API: http://localhost:${port}`);

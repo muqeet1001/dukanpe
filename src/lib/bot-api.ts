@@ -7,9 +7,11 @@ export type Product = { id: string; name: string; unit: string; pricePaise: numb
 export type InvoiceItem = { productId: string; name: string; unit: string; quantityMilli: number; unitPricePaise: number; totalPaise: number };
 export type BotInvoice = { id: string; number: string; customerId: string; customerName: string; customerPhone: string; createdAt: string;
   items: InvoiceItem[]; totalPaise: number; balanceAfterPaise: number; sourceMessageId: string; sourceBody: string; isDemo: boolean;
-  delivery: 'demo' | 'pending' | 'sending' | 'sent' | 'uncertain'; deliveryError: string | null; paymentStatus: 'unpaid' };
+  delivery: 'demo' | 'pending' | 'sending' | 'sent' | 'uncertain'; deliveryError: string | null; paymentStatus: 'unpaid' | 'paid' };
+export type BotPayment = { invoiceId: string; proofId: string; amountPaise: number; customerId: string; status: 'review' | 'confirmed' | 'rejected';
+  upiId: string; submittedAt: string; reviewedAt?: string; checks: { amountMatched: boolean; payeeMatched: boolean; successful: boolean; reference: string; warnings: string[] } };
 export type BotStatus = { state: 'idle' | 'starting' | 'qr' | 'authenticating' | 'connected' | 'disconnected' | 'error'; qr: string | null; error: string | null; lastIncomingAt?: string; lastReplyAt?: string };
-export type BotSnapshot = { shopName: string; status: BotStatus; catalogue: Product[]; invoices: BotInvoice[]; parties: Party[]; records: BusinessRecord[] };
+export type BotSnapshot = { shopName: string; status: BotStatus; catalogue: Product[]; invoices: BotInvoice[]; parties: Party[]; records: BusinessRecord[]; payments: BotPayment[]; merchant?: { upiId: string; name: string } };
 export type DemoResult = { reply: string; invoice: BotInvoice | null; duplicate: boolean };
 
 export function defaultBotUrl() {
@@ -46,6 +48,10 @@ export function validateSnapshot(data: BotSnapshot): BotSnapshot {
     || (data.status.error !== null && typeof data.status.error !== 'string')
     || [data.status.lastIncomingAt, data.status.lastReplyAt].some((value) => value !== undefined && (typeof value !== 'string' || !Number.isFinite(Date.parse(value))))
     || !Array.isArray(data.parties) || !Array.isArray(data.records) || !Array.isArray(data.invoices) || !Array.isArray(data.catalogue)
+    || !Array.isArray(data.payments) || !data.payments.every((p) => typeof p.invoiceId === 'string' && typeof p.proofId === 'string' && /^[a-f0-9]{64}$/.test(p.proofId)
+      && Number.isSafeInteger(p.amountPaise) && ['review', 'confirmed', 'rejected'].includes(p.status) && typeof p.upiId === 'string'
+      && p.checks && ['amountMatched', 'payeeMatched', 'successful'].every((key) => typeof p.checks[key as keyof typeof p.checks] === 'boolean')
+      && typeof p.checks.reference === 'string' && Array.isArray(p.checks.warnings) && p.checks.warnings.every((w) => typeof w === 'string'))
     || !data.parties.every((p) => typeof p.id === 'string' && p.id.startsWith('wa-customer-') && typeof p.name === 'string' && typeof p.initials === 'string' && typeof p.note === 'string' && p.openingBalancePaise === 0)
     || !data.records.every((r) => typeof r.id === 'string' && typeof r.title === 'string' && typeof r.subtitle === 'string' && typeof r.evidence === 'string' && typeof r.createdAt === 'string')
     || !data.catalogue.every((p) => typeof p.id === 'string' && typeof p.name === 'string' && typeof p.unit === 'string' && Number.isSafeInteger(p.pricePaise))

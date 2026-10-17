@@ -54,3 +54,28 @@ test('MongoDB transactions, concurrent deduplication, named khata and persisted 
   const draft = await store.conversation(draftKey); assert.equal(draft.orderBody, undefined); assert.equal(draft.items, undefined);
   assert.deepEqual(draft.productIds, ['milk']);
 });
+
+test('MongoDB payment receipts settle once under concurrent confirmation and preserve live-only snapshots', { skip: !process.env.MONGODB_URI }, async (t) => {
+  const prefix = 'dukanpe_test_' + randomUUID().replaceAll('-', '') + '_';
+  const store = await MongoStore.connect(process.env.MONGODB_URI, process.env.MONGODB_DB || undefined, catalogue, 'Payment Integration Test', { prefix });
+  t.after(async () => {
+    assert.match(prefix, /^dukanpe_test_[a-f0-9]{32}_$/);
+    for (const collection of Object.values(store.collections)) { assert.ok(collection.collectionName.startsWith(prefix)); await collection.drop(); }
+    await store.close();
+  });
+  const input = (body, isDemo = false) => ({ messageId: randomUUID(), customerKey: 'test-payments', chatId: 'test-payments@lid', name: 'Test Customer', phone: '', body, isDemo });
+  const invoice = (await store.process(input('2 kg rice'))).invoice;
+  await store.process(input('1 kg rice', true));
+  const proof = { invoiceId: invoice.id, proofId: 'a'.repeat(64), messageId: 'test-proof', mime: 'image/png', upiId: 'test@upi', submittedAt: new Date().toISOString(), checks: { reference: '111122223333', warnings: [], amountMatched: true, payeeMatched: true, successful: true } };
+  await store.saveProof(proof); assert.equal(await store.balance(invoice.customerId), 12000);
+  const results = await Promise.all([store.reviewPayment(invoice.id, proof.proofId, 'confirmed'), store.reviewPayment(invoice.id, proof.proofId, 'confirmed')]);
+  assert.ok(results.every((p) => p.status === 'confirmed')); assert.equal(await store.balance(invoice.customerId), 0);
+  const snapshot = await store.snapshot({ liveOnly: true });
+  assert.equal(snapshot.invoices.length, 1); assert.equal(snapshot.parties.length, 1); assert.equal(snapshot.payments.length, 1);
+  assert.equal(snapshot.invoices[0].paymentStatus, 'paid'); assert.equal(snapshot.records.filter((r) => r.kind === 'receipt').length, 1);
+  const next = (await store.process(input('2 kg rice'))).invoice;
+  assert.equal((await store.saveProof({ ...proof, invoiceId: next.id })).status, 'reused');
+  await store.saveProof({ ...proof, invoiceId: next.id, proofId: 'b'.repeat(64) });
+  await assert.rejects(store.reviewPayment(next.id, 'b'.repeat(64), 'confirmed'), /reference already used/);
+  assert.equal(await store.balance(invoice.customerId), 12000); assert.equal((await store.invoice(next.id)).paymentStatus, 'unpaid');
+});

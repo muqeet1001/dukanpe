@@ -116,25 +116,34 @@ export function businessReducer(state: BusinessState, action: Action): BusinessS
       const partyIds = new Set([...state.parties.filter((party) => party.origin === 'whatsapp-bot'), ...validParties].map((party) => party.id));
       const parties = new Map(state.parties.map((party) => [party.id, party]));
       const records = new Map(state.records.map((record) => [record.id, record]));
-      for (const party of validParties) if (!parties.has(party.id)) parties.set(party.id, party);
-      const added: BusinessRecord[] = [];
+      for (const party of validParties) parties.set(party.id, party);
       for (const record of action.records) {
-        if (records.has(record.id) || record.origin !== 'whatsapp-bot' || record.source !== 'WhatsApp' || !record.invoiceId
-          || !record.partyId || !partyIds.has(record.partyId) || !['sale', 'invoice', 'message'].includes(record.kind)
+        if (record.isDemo || record.origin !== 'whatsapp-bot' || record.source !== 'WhatsApp' || !record.invoiceId
+          || !record.partyId || !partyIds.has(record.partyId) || !['sale', 'invoice', 'message', 'receipt'].includes(record.kind)
           || !record.id.startsWith('wa-' + record.kind + '-') || !Number.isFinite(Date.parse(record.createdAt))
           || (record.kind !== 'message' && (!Number.isSafeInteger(record.amountPaise) || (record.amountPaise ?? 0) < 1))
-          || record.status !== (record.kind === 'sale' ? 'confirmed' : 'saved')) continue;
-        records.set(record.id, record); added.push(record);
+          || (record.kind === 'receipt' ? !['review', 'confirmed'].includes(record.status) : record.status !== (record.kind === 'sale' ? 'confirmed' : 'saved'))) continue;
+        if (records.has(record.id) && records.get(record.id)?.origin !== 'whatsapp-bot') continue;
+        if (record.kind === 'receipt' && record.status === 'review' && records.get(record.id)?.status === 'confirmed') continue;
+        records.set(record.id, record);
       }
-      if (parties.size === state.parties.length && !added.length) return state;
-      return { ...state, parties: [...parties.values()], records: [...added, ...state.records] };
+      // A rejected proof disappears from the authoritative snapshot; remove its review row.
+      const incomingIds = new Set(action.records.map((r) => r.id));
+      for (const [id, record] of records) if (record.origin === 'whatsapp-bot' && record.kind === 'receipt' && record.status === 'review' && !incomingIds.has(id)) records.delete(id);
+      const reviewTasks: FollowUp[] = [...records.values()].filter((r) => r.origin === 'whatsapp-bot' && r.kind === 'receipt').map((r) => ({
+        id: 'wa-payment-' + r.invoiceId, kind: 'payment', title: r.status === 'review' ? 'Review ' + r.title : r.title,
+        description: 'Check the payment screenshot against money received in your account.', due: 'Today', priority: 'high',
+        status: r.status === 'review' ? 'open' : 'done', partyId: r.partyId, recordId: r.id, amountPaise: r.amountPaise, evidence: r.evidence,
+      }));
+      const next = { ...state, parties: [...parties.values()], records: [...records.values()], followUps: [...state.followUps.filter((f) => !f.id.startsWith('wa-payment-')), ...reviewTasks] };
+      return JSON.stringify(next) === JSON.stringify(state) ? state : next;
     }
     case 'hydrate':
     case 'reset':
       return action.state;
     case 'confirm-payment': {
       const record = state.records.find((item) => item.id === action.id);
-      if (!record || record.kind !== 'receipt' || record.status !== 'review') return state;
+      if (!record || record.origin === 'whatsapp-bot' || record.kind !== 'receipt' || record.status !== 'review') return state;
       const partyId = action.partyId === null ? undefined : action.partyId ?? record.partyId;
       if (partyId && !state.parties.some((party) => party.id === partyId)) return state;
       return {
@@ -176,6 +185,21 @@ export function businessReducer(state: BusinessState, action: Action): BusinessS
   }
 }
 
+export const createEmptyState = (): BusinessState => ({ version: 1, parties: [], records: [], followUps: [] });
+
+export function removeDemoData(state: BusinessState): BusinessState {
+  const fixture = createDemoState();
+  const sampleRecords = new Set(fixture.records.map((r) => r.id));
+  const sampleTasks = new Set(fixture.followUps.map((f) => f.id));
+  const sampleParties = new Set(fixture.parties.map((p) => p.id));
+  const records = state.records.filter((r) => !sampleRecords.has(r.id) && !r.isDemo);
+  const usedParties = new Set(records.map((r) => r.partyId));
+  return { ...state, records, followUps: state.followUps.filter((f) => !sampleTasks.has(f.id)),
+    parties: state.parties.filter((p) => usedParties.has(p.id) || (!sampleParties.has(p.id) && p.origin !== 'whatsapp-bot'))
+      .map((p) => sampleParties.has(p.id) ? { ...p, openingBalancePaise: 0, note: 'Customer linked to your recorded entries' } : p) };
+}
+
+// Retained only as an explicit test fixture. Production starts empty.
 export function createDemoState(now = new Date()): BusinessState {
   const at = (hours: number, minutes: number) => {
     const date = new Date(now); date.setHours(hours, minutes, 0, 0); return date.toISOString();
@@ -240,8 +264,8 @@ export function answerQuestion(question: string, state: BusinessState, hindi = f
     recordIds: state.records.filter((record) => record.status === 'review').map((record) => record.id),
   };
   if (/follow|task|attention|supplier|invoice|delivery|करना/.test(q)) return {
-    text: hindi ? summary.followUps + ' फॉलो-अप बाकी हैं। Roy के वादे, सप्लायर बिल और डिलीवरी की जाँच करें।'
-      : 'There are ' + summary.followUps + ' open follow-ups. Review the customer payment promise, supplier price difference, payment alert and delivery commitment. Each has its supporting record.',
+    text: hindi ? summary.followUps + ' फॉलो-अप बाकी हैं। अपने रिकॉर्ड और भुगतान की जाँच करें।'
+      : 'There are ' + summary.followUps + ' open follow-ups. ' + state.followUps.filter((f) => f.status === 'open').map((f) => f.title).join(' · '),
     recordIds: [...new Set(state.followUps.filter((item) => item.status === 'open').flatMap((item) => item.recordId ? [item.recordId] : []))],
   };
   if (/owe|due|udhaar|khata|balance|बकाया|उधार/.test(q)) return {
@@ -249,6 +273,6 @@ export function answerQuestion(question: string, state: BusinessState, hindi = f
       : 'Customers owe a total of ' + money(summary.dues) + '. ' + state.parties.map((item) => item.name.split(' ')[0] + ': ' + money(partyBalance(state, item.id))).join(' · ') + '. Unconfirmed alerts are excluded.',
     recordIds: [],
   };
-  return { text: hindi ? 'मैं डेमो रिकॉर्ड से बिक्री, भुगतान, खाता और फॉलो-अप बता सकता हूँ। पूछें: “आज की बिक्री?” या “Roy का बकाया?”'
-    : 'I can explain your demo sales, receipts, customer balances and follow-ups, with their records. Try “What are today’s sales?”, “What does Roy owe?” or “What needs my attention?”.', recordIds: [] };
+  return { text: hindi ? 'मैं आपके रिकॉर्ड से बिक्री, भुगतान, खाता और फॉलो-अप बता सकता हूँ। पूछें: “आज की बिक्री?” या “कुल बकाया?”'
+    : 'I can explain your saved sales, receipts, customer balances and follow-ups. Try “What are today’s sales?”, “What are customer dues?” or “What needs my attention?”.', recordIds: [] };
 }

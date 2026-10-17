@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { chatCommand, invoiceText, menuText, orderHelpText, parseOrder, validateCatalogue, validateIncoming, welcomeText } from './orders.js';
 import { identityKeys } from './customer-data.js';
+import { snapshotData } from './snapshot.js';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex').slice(0, 24);
 export class Store {
@@ -18,6 +19,9 @@ export class Store {
         source_message_id TEXT NOT NULL UNIQUE, source_body TEXT NOT NULL, mode TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS ledger(id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL UNIQUE REFERENCES invoices(id), customer_id TEXT NOT NULL REFERENCES customers(id), amount_paise INTEGER NOT NULL CHECK(amount_paise>0));
       CREATE TABLE IF NOT EXISTS outbox(invoice_id TEXT PRIMARY KEY REFERENCES invoices(id), destination TEXT NOT NULL, status TEXT NOT NULL, message_id TEXT, error TEXT);
+      CREATE TABLE IF NOT EXISTS payments(invoice_id TEXT PRIMARY KEY REFERENCES invoices(id), data_json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS payment_proofs(proof_id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL REFERENCES invoices(id));
+      CREATE TABLE IF NOT EXISTS payment_receipts(invoice_id TEXT PRIMARY KEY REFERENCES invoices(id), reference TEXT UNIQUE);
     `);
     const insert = this.db.prepare('INSERT OR IGNORE INTO products VALUES(?,?,?,?,?)');
     for (const product of validateCatalogue(catalogue)) insert.run(product.id, product.name, product.unit, product.pricePaise, JSON.stringify(product.aliases));
@@ -30,7 +34,12 @@ export class Store {
     if (!Number.isSafeInteger(pricePaise) || pricePaise < 1 || pricePaise > 10000000) throw new Error('Enter a valid price between INR 0.01 and INR 1,00,000.');
     if (!this.db.prepare('UPDATE products SET price_paise=? WHERE id=?').run(pricePaise, id).changes) throw new Error('Product not found.');
   }
-  balance(customerId) { return this.db.prepare('SELECT COALESCE(SUM(amount_paise),0) AS balance FROM ledger WHERE customer_id=?').get(customerId).balance; }
+  balance(customerId) {
+    const debits = this.db.prepare('SELECT COALESCE(SUM(amount_paise),0) AS balance FROM ledger WHERE customer_id=?').get(customerId).balance;
+    const paid = this.db.prepare('SELECT p.data_json FROM payments p JOIN invoices i ON i.id=p.invoice_id WHERE i.customer_id=?').all(customerId)
+      .map((row) => JSON.parse(row.data_json)).filter((p) => p.status === 'confirmed').reduce((sum, p) => sum + p.amountPaise, 0);
+    return debits - paid;
+  }
   customerScope(input) {
     const mode = input.isDemo ? 'demo' : 'live'; const keys = identityKeys(input);
     return this.db.prepare(`SELECT DISTINCT c.* FROM customers c WHERE c.mode=? AND
@@ -61,7 +70,40 @@ export class Store {
     return { id: row.id, number: row.number, customerId: row.customer_id, customerName: row.name, customerPhone: row.phone,
       createdAt: row.created_at, items: JSON.parse(row.items_json), totalPaise: row.total_paise, balanceAfterPaise: row.balance_after_paise,
       sourceMessageId: row.source_message_id, sourceBody: row.source_body, isDemo: row.mode === 'demo', delivery: row.delivery,
-      deliveryError: row.delivery_error, destination: row.destination, paymentStatus: 'unpaid' };
+      deliveryError: row.delivery_error, destination: row.destination, paymentStatus: this.payment(id)?.status === 'confirmed' ? 'paid' : 'unpaid', paymentReview: this.payment(id)?.status || null };
+  }
+  payment(id) { const row = this.db.prepare('SELECT data_json FROM payments WHERE invoice_id=?').get(id); return row ? JSON.parse(row.data_json) : null; }
+  saveProof(proof) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = this.payment(proof.invoiceId);
+      const previous = this.db.prepare('SELECT invoice_id FROM payment_proofs WHERE proof_id=?').get(proof.proofId);
+      if (previous && previous.invoice_id !== proof.invoiceId) { this.db.exec('COMMIT'); return { status: 'reused' }; }
+      if (current?.status === 'confirmed' || current?.proofId === proof.proofId) { this.db.exec('COMMIT'); return current; }
+      const invoice = this.invoice(proof.invoiceId);
+      if (!invoice || invoice.isDemo) throw new Error('Payment invoice not found.');
+      const payment = { ...proof, amountPaise: invoice.totalPaise, customerId: invoice.customerId, status: 'review' };
+      this.db.prepare('INSERT OR IGNORE INTO payment_proofs VALUES(?,?)').run(proof.proofId, proof.invoiceId);
+      this.db.prepare('INSERT INTO payments VALUES(?,?) ON CONFLICT(invoice_id) DO UPDATE SET data_json=excluded.data_json').run(proof.invoiceId, JSON.stringify(payment));
+      this.db.exec('COMMIT'); return payment;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  reviewPayment(id, proofId, decision) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const payment = this.payment(id);
+      if (!payment || payment.proofId !== proofId) throw new Error('Payment proof changed. Refresh and review again.');
+      if (payment.status === 'confirmed') { this.db.exec('COMMIT'); return payment; }
+      if (payment.status !== 'review' || !['confirmed', 'rejected'].includes(decision)) throw new Error('Payment is not awaiting review.');
+      if (decision === 'confirmed') {
+        const reference = payment.checks.reference || null;
+        if (reference && this.db.prepare('SELECT invoice_id FROM payment_receipts WHERE reference=?').get(reference)) throw new Error('Payment reference already used for another invoice.');
+        this.db.prepare('INSERT INTO payment_receipts VALUES(?,?)').run(id, reference);
+      }
+      const reviewed = { ...payment, status: decision, reviewedAt: new Date().toISOString(), verifiedBy: 'merchant' };
+      this.db.prepare('UPDATE payments SET data_json=? WHERE invoice_id=?').run(JSON.stringify(reviewed), id);
+      this.db.exec('COMMIT'); return reviewed;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   message(messageId, isDemo = false) {
     const row = this.db.prepare('SELECT * FROM messages WHERE id=?').get(`${isDemo ? 'demo' : 'live'}:${messageId}`);
@@ -114,22 +156,10 @@ export class Store {
   }
   delivery(id, status, error = null, messageId = null) { this.db.prepare('UPDATE outbox SET status=?,error=?,message_id=? WHERE invoice_id=?').run(status, error, messageId, id); }
   pending() { return this.db.prepare("SELECT invoice_id FROM outbox WHERE status='pending'").all().map((row) => row.invoice_id); }
-  snapshot() {
-    const invoices = this.db.prepare('SELECT id FROM invoices ORDER BY created_at DESC,rowid DESC').all().map((row) => this.invoice(row.id));
-    const parties = this.db.prepare('SELECT * FROM customers ORDER BY rowid').all().map((row) => ({ id: row.id, name: row.name,
-      initials: row.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join('').toUpperCase(), color: 'mint', openingBalancePaise: 0,
-      phone: row.phone, origin: 'whatsapp-bot', note: `${row.mode === 'demo' ? 'Simulated WhatsApp order' : 'WhatsApp orders'}${row.phone ? ' · ' + row.phone : ''}` }));
-    const records = invoices.flatMap((invoice) => {
-      const base = { source: 'WhatsApp', partyId: invoice.customerId, createdAt: invoice.createdAt, origin: 'whatsapp-bot', isDemo: invoice.isDemo, invoiceId: invoice.id };
-      return [
-        { ...base, id: 'wa-sale-' + invoice.id, kind: 'sale', status: 'confirmed', amountPaise: invoice.totalPaise,
-          title: `${invoice.customerName} · Credit order`, subtitle: `${invoice.number} · Unpaid`, evidence: `Invoice ${invoice.number}. ${invoice.items.map((item) => `${item.quantityMilli / 1000} ${item.unit} ${item.name}`).join(', ')}. Automatically added to khata once.`, note: 'An unpaid order invoice. No receipt or payment has been recorded.' },
-        { ...base, id: 'wa-invoice-' + invoice.id, kind: 'invoice', status: 'saved', amountPaise: invoice.totalPaise,
-          title: `Invoice ${invoice.number}`, subtitle: `${invoice.customerName} · Unpaid invoice`, evidence: invoiceText(invoice, this.shopName) },
-        { ...base, id: 'wa-message-' + invoice.id, kind: 'message', status: 'saved', title: `${invoice.customerName} · WhatsApp order`,
-          subtitle: `${invoice.isDemo ? 'Simulated' : 'Received'} · ${invoice.number}`, evidence: invoice.sourceBody },
-      ];
-    });
-    return { shopName: this.shopName, catalogue: this.catalogue(), invoices: invoices.map(({ destination, ...invoice }) => invoice), parties, records };
+  snapshot({ liveOnly = false } = {}) {
+    const invoices = this.db.prepare('SELECT id FROM invoices ORDER BY created_at DESC,rowid DESC').all().map((row) => this.invoice(row.id)).filter((i) => !liveOnly || !i.isDemo);
+    const customers = this.db.prepare('SELECT * FROM customers ORDER BY rowid').all().filter((c) => !liveOnly || c.mode === 'live');
+    const payments = invoices.map((i) => this.payment(i.id)).filter(Boolean);
+    return snapshotData(this.shopName, this.catalogue(), invoices, customers, payments);
   }
 }

@@ -17,8 +17,8 @@ export default function FollowUpsScreen() {
   return <Page title="Follow-ups" subtitle="Your next move, already found." right={<View style={{ backgroundColor: c.sky, padding: 12, borderRadius: 16 }}><Icon name="sparkles" color={c.blue} /></View>}>
     <Card style={{ backgroundColor: '#E6F6FE', borderColor: '#DCF0FC', gap: 12 }}>
       <View style={ui.between}><Badge label="YOUR DAILY BRIEF" /><Icon name="sunny-outline" size={20} color={c.blue} /></View>
-      <T weight="extra" style={{ fontSize: 23, lineHeight: 31, letterSpacing: -0.8 }}>{open.length ? open.length + ' things worth\nyour attention.' : 'You’re all caught up.'}</T>
-      <T style={{ fontSize: 12, lineHeight: 20, color: '#5F7F9B' }}>Promises, payment alerts and supplier updates, brought together from your records.</T>
+      <T weight="extra" style={{ fontSize: 23, lineHeight: 31, letterSpacing: -0.8 }}>{open.length ? open.length + (open.length === 1 ? ' thing worth\nyour attention.' : ' things worth\nyour attention.') : 'You’re all caught up.'}</T>
+      <T style={{ fontSize: 12, lineHeight: 20, color: '#5F7F9B' }}>Payment screenshots waiting for review, linked to customer orders and khata.</T>
       <View style={{ flexDirection: 'row', gap: 16, marginTop: 2 }}>
         <T weight="bold" style={{ color: c.navy, fontSize: 11 }}>{open.filter((item) => item.due === 'Today').length} due today</T>
         <T weight="bold" style={{ color: c.amber, fontSize: 11 }}>{open.filter((item) => item.priority === 'high').length} need attention</T>
@@ -43,13 +43,13 @@ export default function FollowUpsScreen() {
         <View style={{ height: 1, backgroundColor: c.line }} />
         <View style={ui.between}>
           <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/follow-up/[id]', params: { id: task.id } })}><T weight="bold" style={{ fontSize: 11, color: c.blue }}>View evidence & act  →</T></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'done' ? 'Reopen follow-up' : 'Mark follow-up done'} hitSlop={10}
+          {!task.id.startsWith('wa-payment-') && <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'done' ? 'Reopen follow-up' : 'Mark follow-up done'} hitSlop={10}
             onPress={(event) => { event.stopPropagation(); dispatch({ type: 'follow-up', id: task.id, done: task.status !== 'done' }); notify(task.status === 'done' ? 'Follow-up reopened' : 'Follow-up marked done'); }}
             style={{ padding: 6, borderRadius: 8, backgroundColor: task.status === 'done' ? c.greenLight : c.ice }}>
             <Icon name={task.status === 'done' ? 'checkmark-circle' : 'checkmark-outline'} size={19} color={task.status === 'done' ? c.green : c.muted} />
-          </Pressable>
+          </Pressable>}
         </View>
       </Card>) : <Card><Empty title={filter === 'Done' ? 'No completed follow-ups yet' : 'Nothing waiting here'} description="Your open promises and record checks appear here. You can reopen completed follow-ups anytime." icon="checkmark-done-circle-outline" /></Card>}
-    <T style={[ui.help, { textAlign: 'center' }]}>Suggestions from sample records. Nothing is sent automatically.</T>
+    <T style={[ui.help, { textAlign: 'center' }]}>Payment reviews update automatically when you confirm or reject a screenshot.</T>
   </Page>;
 }
