@@ -8,7 +8,7 @@ export type InvoiceItem = { productId: string; name: string; unit: string; quant
 export type BotInvoice = { id: string; number: string; customerId: string; customerName: string; customerPhone: string; createdAt: string;
   items: InvoiceItem[]; totalPaise: number; balanceAfterPaise: number; sourceMessageId: string; sourceBody: string; isDemo: boolean;
   delivery: 'demo' | 'pending' | 'sending' | 'sent' | 'uncertain'; deliveryError: string | null; paymentStatus: 'unpaid' };
-export type BotStatus = { state: 'idle' | 'starting' | 'qr' | 'authenticating' | 'connected' | 'disconnected' | 'error'; qr: string | null; error: string | null };
+export type BotStatus = { state: 'idle' | 'starting' | 'qr' | 'authenticating' | 'connected' | 'disconnected' | 'error'; qr: string | null; error: string | null; lastIncomingAt?: string; lastReplyAt?: string };
 export type BotSnapshot = { shopName: string; status: BotStatus; catalogue: Product[]; invoices: BotInvoice[]; parties: Party[]; records: BusinessRecord[] };
 export type DemoResult = { reply: string; invoice: BotInvoice | null; duplicate: boolean };
 
@@ -44,6 +44,7 @@ export function validateSnapshot(data: BotSnapshot): BotSnapshot {
   if (!data || typeof data.shopName !== 'string' || !data.status || !['idle', 'starting', 'qr', 'authenticating', 'connected', 'disconnected', 'error'].includes(data.status.state)
     || (data.status.qr !== null && (typeof data.status.qr !== 'string' || !data.status.qr.startsWith('data:image/png;base64,')))
     || (data.status.error !== null && typeof data.status.error !== 'string')
+    || [data.status.lastIncomingAt, data.status.lastReplyAt].some((value) => value !== undefined && (typeof value !== 'string' || !Number.isFinite(Date.parse(value))))
     || !Array.isArray(data.parties) || !Array.isArray(data.records) || !Array.isArray(data.invoices) || !Array.isArray(data.catalogue)
     || !data.parties.every((p) => typeof p.id === 'string' && p.id.startsWith('wa-customer-') && typeof p.name === 'string' && typeof p.initials === 'string' && typeof p.note === 'string' && p.openingBalancePaise === 0)
     || !data.records.every((r) => typeof r.id === 'string' && typeof r.title === 'string' && typeof r.subtitle === 'string' && typeof r.evidence === 'string' && typeof r.createdAt === 'string')

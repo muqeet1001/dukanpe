@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { invoicePdf } from './invoice-pdf.js';
 
 export const equalSecret = (first, second) => typeof first === 'string' && Buffer.byteLength(first) === Buffer.byteLength(second) && timingSafeEqual(Buffer.from(first), Buffer.from(second));
-export function createApi({ store, bot, token, extraOrigins = [] }) {
+export function createApi({ store, bot, token, assistant, extraOrigins = [] }) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -32,7 +32,7 @@ export function createApi({ store, bot, token, extraOrigins = [] }) {
     const { expires, signature } = req.query;
     if (typeof expires !== 'string' || !/^\d{13}$/.test(expires) || Number(expires) < Date.now()
       || Number(expires) > Date.now() + 5 * 60000 || !equalSecret(signature, signPdf(req.params.id, expires))) return res.status(401).json({ error: 'This invoice link has expired.' });
-    const invoice = store.invoice(req.params.id);
+    const invoice = await store.invoice(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found.' });
     res.type('pdf').set('Content-Disposition', `inline; filename="${invoice.number}.pdf"`).send(await invoicePdf(invoice, store.shopName));
   });
@@ -41,28 +41,29 @@ export function createApi({ store, bot, token, extraOrigins = [] }) {
     if (!header.startsWith('Bearer ') || !equalSecret(header.slice(7), token)) return res.status(401).json({ error: 'Pairing code is incorrect. Check the server pairing-code file.' });
     next();
   });
-  app.get('/api/snapshot', (_req, res) => res.json({ ...store.snapshot(), status: bot.status }));
+  app.get('/api/snapshot', async (_req, res) => res.json({ ...await store.snapshot(), status: bot.status }));
   app.post('/api/whatsapp/start', async (_req, res) => { await bot.start(); res.status(202).json({ status: bot.status }); });
   app.post('/api/whatsapp/stop', async (_req, res) => { await bot.stop(); res.json({ status: bot.status }); });
-  app.put('/api/catalogue/:id', (req, res) => { store.setPrice(req.params.id, req.body?.pricePaise); res.json({ catalogue: store.catalogue() }); });
-  app.post('/api/demo/order', (req, res) => {
+  app.put('/api/catalogue/:id', async (req, res) => { await store.setPrice(req.params.id, req.body?.pricePaise); res.json({ catalogue: await store.catalogue() }); });
+  app.post('/api/demo/order', async (req, res) => {
     const { messageId, name = 'Demo Customer', phone = '919999900001', body } = req.body ?? {};
     if (typeof phone !== 'string' || !/^\d{7,15}$/.test(phone)) return res.status(400).json({ error: 'Use a test phone number with country code, digits only.' });
-    const result = store.process({ messageId, customerKey: 'demo:' + phone, phone, name, body, isDemo: true });
+    const input = { messageId, customerKey: 'demo:' + phone, phone, name, body, isDemo: true };
+    const result = assistant ? await assistant.process(input) : await store.process(input);
     res.json(result);
   });
-  app.get('/api/invoices/:id/pdf-link', (req, res) => {
-    if (!store.invoice(req.params.id)) return res.status(404).json({ error: 'Invoice not found.' });
+  app.get('/api/invoices/:id/pdf-link', async (req, res) => {
+    if (!await store.invoice(req.params.id)) return res.status(404).json({ error: 'Invoice not found.' });
     const expires = String(Date.now() + 5 * 60000);
     res.json({ path: `/download/invoice/${encodeURIComponent(req.params.id)}?expires=${expires}&signature=${signPdf(req.params.id, expires)}` });
   });
   app.post('/api/invoices/:id/resend', async (req, res) => {
-    const invoice = store.invoice(req.params.id);
+    const invoice = await store.invoice(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found.' });
     if (invoice.isDemo) return res.status(400).json({ error: 'Simulated invoices cannot be sent to WhatsApp.' });
     if (bot.status.state !== 'connected') return res.status(409).json({ error: 'Connect WhatsApp before resending.' });
     await bot.enqueue(() => bot.deliver(invoice.id, true));
-    res.json({ invoice: store.invoice(invoice.id) });
+    res.json({ invoice: await store.invoice(invoice.id) });
   });
   app.use((_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   app.use((error, _req, res, _next) => {

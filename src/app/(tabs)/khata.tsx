@@ -25,10 +25,10 @@ export default function KhataScreen() {
       <View style={ui.between}><T style={{ color: '#C7DEF3', fontSize: 11 }}>{state.parties.filter((party) => partyBalance(state, party.id) > 0).length} customers with a balance</T>
         <Badge label="Confirmed records" /></View>
     </Card>
-    <Pressable accessibilityRole="button" accessibilityLabel="Open WhatsApp orders and invoices" onPress={() => router.push('/whatsapp')}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Connect WhatsApp" onPress={() => router.push('/whatsapp')}>
       <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.sky, borderColor: '#D6EDF9' }}>
-        <Icon name="logo-whatsapp" color={c.navy} size={29} /><View style={{ flex: 1, gap: 5 }}><T weight="bold" style={{ fontSize: 14 }}>WhatsApp orders</T>
-          <T style={{ fontSize: 10, lineHeight: 17, color: c.muted }}>{error ? 'Bot sync needs attention' : snapshot?.status.state === 'connected' ? 'Linked · Orders become invoices and khata' : connection ? 'Server paired · Link WhatsApp or try a demo' : 'Connect your bot · Order → invoice → khata'}</T></View><Icon name="chevron-forward" size={17} />
+        <Icon name="logo-whatsapp" color={c.navy} size={29} /><View style={{ flex: 1, gap: 5 }}><T weight="bold" style={{ fontSize: 14 }}>{snapshot?.status.state === 'connected' ? 'WhatsApp connected' : 'Connect WhatsApp'}</T>
+          <T style={{ fontSize: 10, lineHeight: 17, color: c.muted }}>{error || snapshot?.status.error ? 'WhatsApp connection needs attention' : snapshot?.status.state === 'connected' ? 'Customer orders are added here automatically' : connection ? 'Link your business WhatsApp number' : 'Connect once · Orders go straight to khata'}</T></View><Icon name="chevron-forward" size={17} />
       </Card>
     </Pressable>
     <SearchField value={query} onChangeText={setQuery} placeholder="Find a customer" />

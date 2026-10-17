@@ -14,7 +14,7 @@ export default function SourcesScreen() {
       <Badge label="MERCHANT WORKSPACE" /><T weight="extra" style={{ fontSize: 21, letterSpacing: -0.6 }}>One shop. One clear picture.</T>
       <T style={{ fontSize: 12, color: '#6585A0', lineHeight: 21 }}>Your sample shop stays on this device. You can pair the Node WhatsApp bot to import order invoices. Bank accounts and payment apps are not connected.</T>
     </Card>
-    <Card style={{ gap: 13 }}><T weight="extra" style={{ fontSize: 16 }}>WhatsApp order bot</T><T style={ui.help}>Pair your server, check product prices and link WhatsApp with a QR. Order invoices appear in customer khata automatically.</T><Button title="Set up WhatsApp orders" icon="logo-whatsapp" onPress={() => router.push('/whatsapp')} /></Card>
+    <Card style={{ gap: 13 }}><T weight="extra" style={{ fontSize: 16 }}>Connect WhatsApp</T><T style={ui.help}>Customers get the menu, place orders and receive invoices on WhatsApp. Their name and order total appear in Khata automatically.</T><Button title="Connect WhatsApp" icon="logo-whatsapp" onPress={() => router.push('/whatsapp')} /></Card>
     {([
       { source: 'WhatsApp', title: 'WhatsApp records', description: 'Sample chats and imported bot orders.', filter: 'WhatsApp', future: 'Use WhatsApp orders above to link the bot. Older sample conversations remain labelled as samples.' },
       { source: 'PhonePe', title: 'Payment alerts', description: 'GPay and PhonePe alerts in one inbox.', filter: 'payments', future: 'Real Android capture needs a native notification listener, permission and a development build.' },

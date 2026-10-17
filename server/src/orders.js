@@ -1,4 +1,10 @@
 export const money = (paise) => 'INR ' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export function validateIncoming({ messageId, customerKey, chatId = customerKey, name, phone = '', body, orderBody }) {
+  if (typeof messageId !== 'string' || !messageId || messageId.length > 240 || typeof customerKey !== 'string' || !customerKey || customerKey.length > 160
+    || typeof chatId !== 'string' || !chatId || chatId.length > 160 || typeof body !== 'string' || body.length > 2000
+    || typeof name !== 'string' || name.length > 100 || typeof phone !== 'string' || phone.length > 30
+    || (orderBody !== undefined && (typeof orderBody !== 'string' || orderBody.length > 2000))) throw new Error('Invalid order message.');
+}
 const normalise = (text) => text.toLowerCase().normalize('NFKC').replace(/[०-९]/g, (digit) => String('०१२३४५६७८९'.indexOf(digit))).replace(/\s+/g, ' ').trim();
 const units = {
   kg: ['kg', 1000], kgs: ['kg', 1000], kilo: ['kg', 1000], kilogram: ['kg', 1000], kilograms: ['kg', 1000], किलो: ['kg', 1000],
@@ -59,6 +65,22 @@ export function parseOrder(body, catalogue) {
   const totalPaise = lines.reduce((sum, item) => sum + item.totalPaise, 0);
   if (!Number.isSafeInteger(totalPaise) || totalPaise < 1 || totalPaise > 1000000000) return { error: 'Order total is outside the supported range.' };
   return { items: lines, totalPaise };
+}
+
+export function chatCommand(body) {
+  const text = normalise(body).replace(/[!.?।]+$/u, '').trim();
+  if (/^(?:\/?start|hi|hii+|hello|hey|namaste|namaskar|salaam|नमस्ते|नमस्कार)$/u.test(text)) return 'welcome';
+  if (/^(?:1|\/?menu|\/?help)$/u.test(text)) return 'menu';
+  if (/^(?:2|\/?order)$/u.test(text)) return 'order';
+  return null;
+}
+
+export function welcomeText(shopName) {
+  return `Namaste! 👋 Welcome to *${shopName}*.\nI'm your Dukanpe shopping assistant.\n\nHow can I help you today?\n*1* · View products & prices\n*2* · How to place an order\n\nYou can also send your order directly:\n2 kg rice, 1 kg sugar\n\nI'll send your invoice here and add the unpaid amount to your shop khata.\n\nReply MENU any time to see prices.`;
+}
+
+export function orderHelpText() {
+  return 'Ready to order? 🛒\n\nSend the quantity and product name, like:\n2 kg rice, 1 kg sugar\n\nUse a comma or a new line between items. Send MENU for available products and prices.\n\nA valid order creates an unpaid invoice and one khata entry. This message has not placed an order.';
 }
 
 export function menuText(catalogue, shopName) {

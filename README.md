@@ -25,7 +25,7 @@ Native iOS builds require macOS/Xcode or an EAS build. No account, API key or pa
 
 ## What works
 
-- A Node + whatsapp-web.js order bot with QR linking, product prices, PDF invoices and automatic khata sync. See [bot setup](server/README.md).
+- A Node + whatsapp-web.js bot with QR linking, Groq AI conversation, MongoDB persistence, PDF invoices and automatic khata sync. See [bot setup](server/README.md).
 - Home with three separate summary boxes above search: white for recorded sales, light blue for confirmed receipts and navy for customer dues.
 - Home search carries the typed query into matching records; quick actions open sales, udhaar and payment history.
 - Recent activity on Home shows the five newest records, with a link to the complete searchable history.
@@ -70,7 +70,7 @@ Use Your sources → Restore fresh sample data to restart the demo. Sample times
 
 ## Integration boundary
 
-The mobile app starts with fictional sample records. The separate Node bot can connect WhatsApp after its owner scans a linking QR; clear catalogue orders generate unpaid PDF invoices and sync to customer khata. The bot's simulated chat works without WhatsApp. It does not access real GPay/PhonePe histories, capture Android notifications, read SMS, run OCR, implement production merchant accounts or call a hosted AI model. The voice control opens Ask; speech input is not implemented. The speaker button uses device text-to-speech.
+The mobile app starts with fictional sample records. The separate Node bot connects WhatsApp after its owner scans a linking QR. Customers send HI, view the menu, place orders and receive unpaid PDF invoices entirely on WhatsApp; their name and order total sync to customer khata automatically. Groq helps with conversation and natural-language orders; AI-interpreted orders require customer confirmation before booking. MongoDB persists bot customers, invoices and khata. The app connection screen only handles linking and connection settings. It does not access real GPay/PhonePe histories, capture Android notifications, read SMS, run OCR or implement production merchant accounts. The voice control opens Ask; speech input is not implemented. The speaker button uses device text-to-speech.
 
 AsyncStorage is an unencrypted demo store and must not hold production financial records or credentials. The server remains authoritative when backend services are connected. See the [app architecture](docs/expo-mern-app-architecture.md) and [automatic-payment architecture](docs/automatic-payment-tracking-architecture.md) for the native capture, ingestion, MongoDB, evidence and confirmation design.
 

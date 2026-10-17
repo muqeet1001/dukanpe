@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
-import { invoiceText, menuText, parseOrder, validateCatalogue } from './orders.js';
+import { chatCommand, invoiceText, menuText, orderHelpText, parseOrder, validateCatalogue, validateIncoming, welcomeText } from './orders.js';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex').slice(0, 24);
 export class Store {
@@ -11,6 +11,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS products(id TEXT PRIMARY KEY, name TEXT NOT NULL, unit TEXT NOT NULL, price_paise INTEGER NOT NULL CHECK(price_paise>0), aliases_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY, identity TEXT NOT NULL UNIQUE, name TEXT NOT NULL, phone TEXT NOT NULL, mode TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY, body TEXT NOT NULL, reply TEXT NOT NULL, invoice_id TEXT);
+      CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY, number TEXT NOT NULL UNIQUE, customer_id TEXT NOT NULL REFERENCES customers(id), created_at TEXT NOT NULL,
         items_json TEXT NOT NULL, total_paise INTEGER NOT NULL CHECK(total_paise>0), balance_after_paise INTEGER NOT NULL,
         source_message_id TEXT NOT NULL UNIQUE, source_body TEXT NOT NULL, mode TEXT NOT NULL);
@@ -38,18 +39,33 @@ export class Store {
       sourceMessageId: row.source_message_id, sourceBody: row.source_body, isDemo: row.mode === 'demo', delivery: row.delivery,
       deliveryError: row.delivery_error, destination: row.destination, paymentStatus: 'unpaid' };
   }
-  process({ messageId, customerKey, chatId = customerKey, name, phone = '', body, isDemo = false }) {
-    if (typeof messageId !== 'string' || !messageId || messageId.length > 240 || typeof customerKey !== 'string' || !customerKey || customerKey.length > 160
-      || typeof body !== 'string' || body.length > 2000 || typeof name !== 'string' || name.length > 100 || typeof phone !== 'string' || phone.length > 30) throw new Error('Invalid order message.');
+  message(messageId, isDemo = false) {
+    const row = this.db.prepare('SELECT * FROM messages WHERE id=?').get(`${isDemo ? 'demo' : 'live'}:${messageId}`);
+    return row ? { reply: row.reply, invoice: row.invoice_id ? this.invoice(row.invoice_id) : null, duplicate: true } : null;
+  }
+  saveReply(input, reply, invoiceId = null) {
+    validateIncoming(input);
+    const key = `${input.isDemo ? 'demo' : 'live'}:${input.messageId}`;
+    const inserted = this.db.prepare('INSERT OR IGNORE INTO messages VALUES(?,?,?,?)').run(key, input.body, reply, invoiceId);
+    return { ...this.message(input.messageId, input.isDemo), duplicate: !inserted.changes };
+  }
+  conversation(key) { const row = this.db.prepare('SELECT data_json FROM conversations WHERE id=?').get(key); return row ? JSON.parse(row.data_json) : null; }
+  saveConversation(key, data) { this.db.prepare('INSERT INTO conversations VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json').run(key, JSON.stringify(data)); }
+  clearConversation(key) { this.db.prepare('DELETE FROM conversations WHERE id=?').run(key); }
+  process({ messageId, customerKey, chatId = customerKey, name, phone = '', body, orderBody, isDemo = false }) {
+    validateIncoming({ messageId, customerKey, chatId, name, phone, body, orderBody });
     const mode = isDemo ? 'demo' : 'live';
     const key = `${mode}:${messageId}`;
     const existing = this.db.prepare('SELECT * FROM messages WHERE id=?').get(key);
     if (existing) return { reply: existing.reply, invoice: existing.invoice_id ? this.invoice(existing.invoice_id) : null, duplicate: true };
     const catalogue = this.catalogue();
-    const isMenu = /^(?:\/?menu|\/?help|hi|hello|start)$/i.test(body.trim());
-    const parsed = isMenu ? null : parseOrder(body, catalogue);
-    if (isMenu || parsed.error) {
-      const reply = isMenu ? menuText(catalogue, this.shopName) : `${parsed.error}\n\nNo invoice created and no amount added. Send MENU to see prices.`;
+    const command = chatCommand(body);
+    const parsed = command ? null : parseOrder(orderBody ?? body, catalogue);
+    if (command || parsed.error) {
+      const reply = command === 'welcome' ? welcomeText(this.shopName)
+        : command === 'menu' ? menuText(catalogue, this.shopName)
+          : command === 'order' ? orderHelpText()
+            : `${parsed.error}\n\nNo invoice created and no amount added. Send HI to get started or MENU to see prices.`;
       this.db.prepare('INSERT INTO messages VALUES(?,?,?,NULL)').run(key, body, reply);
       return { reply, invoice: null, duplicate: false };
     }
