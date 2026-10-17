@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Dukanpe",
+    "slug": "dukanpe",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dukanpe.merchant"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#002970",
+        "foregroundImage": "./assets/icon.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.dukanpe.merchant"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "name": "Dukanpe — Your merchant workspace"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-status-bar"
+    ],
+    "scheme": "dukanpe"
+  }
+}
